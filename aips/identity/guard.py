@@ -96,6 +96,20 @@ class AccessEvent:
     source_ip: str | None = None
     success: bool = True                 # False = failed authentication / authorisation at the source
     session_id: str | None = None
+    details: dict[str, Any] = field(default_factory=dict)   # platform detail, e.g. what a call created
+
+
+@dataclass
+class ActionRecord:
+    """What an identity did, as reported by the platform (kept so a freeze can be followed by a revert)."""
+
+    ts: float
+    action: str
+    resource: str
+    source_ip: str | None
+    success: bool
+    flagged: bool                        # judged risky (finding raised, denied, or after the identity was frozen)
+    details: dict[str, Any]
 
 
 @dataclass
@@ -191,6 +205,7 @@ class IdentityGuard:
         self._failures: dict[str, deque[float]] = defaultdict(lambda: deque(maxlen=200))
         self._anomalies: dict[str, deque[float]] = defaultdict(lambda: deque(maxlen=50))
         self._exceptions: dict[str, set[tuple[str, str]]] = defaultdict(set)
+        self.history: dict[str, deque[ActionRecord]] = defaultdict(lambda: deque(maxlen=2000))
         self.on_false_positive = on_false_positive
         self._lock = threading.RLock()
         self.stats = Counter()
@@ -206,7 +221,23 @@ class IdentityGuard:
     # -- evaluation --------------------------------------------------------------
     def evaluate(self, ev: AccessEvent) -> AccessDecision:
         with self._lock:
-            return self._evaluate(ev)
+            dec = self._evaluate(ev)
+            # the platform already executed this call if it succeeded there; remember it for a possible revert
+            self.history[ev.identity_id].append(ActionRecord(
+                ev.ts, ev.action, ev.resource, ev.source_ip, ev.success,
+                flagged=dec.finding is not None or not dec.allowed, details=dict(ev.details)))
+            return dec
+
+    def suspicious_actions(self, identity_id: str, since: float | None = None) -> list[ActionRecord]:
+        """Successful platform actions of an identity from its first flagged action onward.
+
+        Anything an identity did after it first behaved suspiciously is treated as possibly attacker-driven;
+        legitimate work done before that point is left alone."""
+        recs = [r for r in self.history.get(identity_id, ()) if since is None or r.ts >= since]
+        first = next((r.ts for r in recs if r.flagged), None)
+        if first is None:
+            return []
+        return [r for r in recs if r.ts >= first and r.success]
 
     def _evaluate(self, ev: AccessEvent) -> AccessDecision:
         cfg = self.config

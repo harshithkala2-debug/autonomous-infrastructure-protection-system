@@ -67,6 +67,8 @@ DEFAULT_CATALOG: dict[str, ActionSpec] = {s.kind: s for s in [
                description="Suspend an identity's access"),
     ActionSpec("identity.revoke_sessions", Risk.MEDIUM, False, Level.L3_DECISION,
                description="Invalidate active sessions / tokens"),
+    ActionSpec("identity.revert_actions", Risk.MEDIUM, True, Level.L3_DECISION,
+               description="Disable / remove what a contained identity created or granted (reversible)"),
     ActionSpec("identity.unfreeze", Risk.LOW, True, Level.HUMAN,
                description="Restore access (appeal outcome)"),
     ActionSpec("backup.hold_replication", Risk.LOW, True, Level.L2_EVALUATION,

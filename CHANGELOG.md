@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.3.0
+
+Closes the gaps found by the first live Google Cloud field test. All verified live except the human-account
+freeze (see `docs/FIELD_TEST_GCP.md`).
+
+* **Revert what a contained identity did.** New action `identity.revert_actions` (MEDIUM, Level 3), added to the
+  identity-containment playbook.
+  * The identity guard now keeps a per-identity action history with platform details.
+  * After a freeze, actions from the identity's first suspicious action onward are reversed: created service
+    accounts and keys are disabled, added project role grants are removed, created firewall rules are disabled.
+  * Read-only calls are skipped; anything else goes to a human for review.
+  * Every revert can be undone (rollback), but it is never auto-undone when an incident fails.
+* **Late audit events.** Frozen identities are re-checked every cycle; actions that appear in the audit log after
+  the freeze are reverted too, through the policy gate.
+* **Freezing human accounts in Google Cloud.** Removes the principal's project role bindings, saves them for an
+  exact restore on appeal, and refuses to remove the last human owner.
+* Cloud Audit Log parsing captures created resources (`response.email` / `response.name`) and IAM binding deltas.
+  It never keeps key material.
+* Emulator: project IAM policy, key disable/enable, audit entries with responses and policy deltas. 5 new tests.
+
 ## 1.2.1
 
 First **live Google Cloud field test**: a misuse was disabled in real IAM in 31 s, and 6 of 6 live safety tests

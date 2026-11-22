@@ -63,6 +63,24 @@ def normalize_action(service: str, method: str) -> str:
     return ".".join([svc] + [p.lower() for p in tail]) if tail else svc
 
 
+def audit_details(p: dict[str, Any]) -> dict[str, Any]:
+    """What an audited call created or changed - what a later revert needs. Only identifiers are kept,
+    never key material (Google does not log private keys)."""
+    resp = p.get("response") or {}
+    out: dict[str, Any] = {"service": p.get("serviceName", ""), "method": p.get("methodName", "")}
+    for k in ("email", "name"):
+        if isinstance(resp.get(k), str):
+            out[f"response_{k}"] = resp[k]
+    deltas = []
+    for holder in (p.get("serviceData") or {}, p.get("metadata") or {}):
+        for d in (holder.get("policyDelta") or {}).get("bindingDeltas", []):
+            if d.get("role") and d.get("member"):
+                deltas.append({"action": d.get("action", ""), "role": d["role"], "member": d["member"]})
+    if deltas:
+        out["binding_deltas"] = deltas
+    return out
+
+
 class GcpTelemetrySource(TelemetrySource):
     name = "gcp"
 
@@ -158,7 +176,7 @@ class GcpTelemetrySource(TelemetrySource):
                 "action": normalize_action(p.get("serviceName", ""), p.get("methodName", "")),
                 "resource": p.get("resourceName", ""), "source_ip": p.get("requestMetadata", {}).get("callerIp"),
                 "success": int(p.get("status", {}).get("code", 0) or 0) == 0, "ts": ts,
-                "session": None})
+                "session": None, "details": audit_details(p)})
             self.stats["access_events"] += 1
         self._audit_since = newest
 

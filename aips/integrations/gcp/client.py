@@ -22,6 +22,7 @@ MONITORING = "https://monitoring.googleapis.com/v3"
 LOGGING = "https://logging.googleapis.com/v2"
 IAM = "https://iam.googleapis.com/v1"
 SCC = "https://securitycenter.googleapis.com/v2"
+RESOURCE_MANAGER = "https://cloudresourcemanager.googleapis.com/v1"
 
 Transport = Callable[[str, str, dict[str, str], bytes | None], tuple[int, Any]]
 

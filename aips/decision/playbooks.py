@@ -164,6 +164,7 @@ def default_playbooks() -> list[Playbook]:
             Level.L3_DECISION,
             steps=[Step("identity.freeze", target="{tag:identity}"),
                    Step("identity.revoke_sessions", target="{tag:identity}", rollback_on_failure=False),
+                   Step("identity.revert_actions", target="{tag:identity}"),
                    Step("notify.humans", params={"message": "Identity {tag:identity} frozen; appeal available"})],
             checks=[Check("identity_frozen", {"identity": "{tag:identity}"})],
             priority=PRIORITY_CONTAINMENT, required_passes=1, release_valves=False,

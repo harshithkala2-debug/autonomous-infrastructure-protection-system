@@ -26,7 +26,7 @@ from typing import Any
 from ...core.models import ActionRequest, ActionResult
 from ...repair.baseline import DesiredStateStore
 from ...repair.executor import InfrastructureAdapter
-from .client import IAM, GcpClient, GcpError
+from .client import IAM, RESOURCE_MANAGER, GcpClient, GcpError
 from .discovery import GcpDiscovery, GcpTopology, firewall_config, managed_by_aips
 
 QUARANTINE_TAG = "aips-quarantine"
@@ -43,6 +43,7 @@ class GcpAdapter(InfrastructureAdapter):
         self.baselines = baselines
         self.wait_ops = wait
         self.topology_ttl_s = 60.0
+        self._removed_bindings: dict[str, list[str]] = {}
         self._topo_at = time.monotonic() if topology is not None else 0.0
 
     # ------------------------------------------------------------------ helpers
@@ -184,15 +185,136 @@ class GcpAdapter(InfrastructureAdapter):
 
     # ------------------------------------------------------------------ identity hook
     def freeze_identity(self, identity: str, frozen: bool) -> tuple[bool, str]:
-        """Enforce an AIPS freeze in Google Cloud. Only service accounts can be disabled through IAM."""
-        if not identity.endswith(".gserviceaccount.com"):
-            return False, "only service accounts can be disabled in Google Cloud; human users need the Admin console"
-        verb = "disable" if frozen else "enable"
+        """Enforce an AIPS freeze in Google Cloud.
+
+        * service accounts are disabled / re-enabled through IAM;
+        * human (and group) principals cannot be disabled by this API, so their role bindings on the project are
+          removed and remembered - which locks them out of the project - and restored exactly on unfreeze.
+          Removing the project's last owner is refused.
+        """
         try:
-            self.c.post(f"{IAM}/projects/-/serviceAccounts/{identity}:{verb}")
+            if identity.endswith(".gserviceaccount.com"):
+                verb = "disable" if frozen else "enable"
+                self.c.post(f"{IAM}/projects/-/serviceAccounts/{identity}:{verb}")
+                return True, f"service account {identity} {verb}d in Google Cloud IAM"
+            return self._freeze_member(identity) if frozen else self._restore_member(identity)
         except GcpError as exc:
             return False, str(exc)
-        return True, f"service account {identity} {verb}d in Google Cloud IAM"
+
+    # -- project IAM policy helpers --------------------------------------------------------------------
+    def _policy(self) -> dict[str, Any]:
+        return self.c.post(f"{RESOURCE_MANAGER}/projects/{self.c.project}:getIamPolicy",
+                           {"options": {"requestedPolicyVersion": 3}})
+
+    def _set_policy(self, policy: dict[str, Any]) -> None:
+        self.c.post(f"{RESOURCE_MANAGER}/projects/{self.c.project}:setIamPolicy", {"policy": policy})
+
+    @staticmethod
+    def _member(identity: str) -> str:
+        if ":" in identity:
+            return identity
+        return f"serviceAccount:{identity}" if identity.endswith(".gserviceaccount.com") else f"user:{identity}"
+
+    def _freeze_member(self, identity: str) -> tuple[bool, str]:
+        member = self._member(identity)
+        pol = self._policy()
+        removed = [b["role"] for b in pol.get("bindings", []) if member in b.get("members", []) and not b.get("condition")]
+        if not removed:
+            return False, f"{member} has no unconditional role bindings on the project to remove"
+        owners = [m for b in pol.get("bindings", []) if b["role"] == "roles/owner" for m in b.get("members", [])
+                  if m != member and m.startswith(("user:", "group:"))]
+        if "roles/owner" in removed and not owners:
+            return False, f"refused: {member} is the project's last human owner"
+        for b in pol.get("bindings", []):
+            if b["role"] in removed and not b.get("condition"):
+                b["members"] = [m for m in b.get("members", []) if m != member]
+        pol["bindings"] = [b for b in pol.get("bindings", []) if b.get("members")]
+        self._set_policy(pol)
+        self._removed_bindings[identity] = removed
+        return True, f"removed {member} from {len(removed)} project role(s): {', '.join(removed)}"
+
+    def _restore_member(self, identity: str) -> tuple[bool, str]:
+        roles = self._removed_bindings.pop(identity, [])
+        if not roles:
+            return False, f"no saved role bindings to restore for {identity}"
+        member = self._member(identity)
+        pol = self._policy()
+        for role in roles:
+            b = next((x for x in pol.setdefault("bindings", []) if x["role"] == role and not x.get("condition")), None)
+            if b is None:
+                pol["bindings"].append({"role": role, "members": [member]})
+            elif member not in b["members"]:
+                b["members"].append(member)
+        self._set_policy(pol)
+        return True, f"restored {member} to {len(roles)} project role(s)"
+
+    # -- reverting a contained identity's actions --------------------------------------------------------
+    READ_VERBS = ("get", "list", "describe", "read", "search", "query", "access", "lookup", "test")
+
+    def revert_action(self, rec: Any) -> tuple[bool, str | None, dict[str, Any] | None]:
+        """Reverse one platform action. Returns (ok, detail, undo): ``undo`` is None when nothing automatic was
+        done (read-only call: detail None; otherwise detail says what a human should review)."""
+        action, det = rec.action, rec.details or {}
+        last = action.rsplit(".", 1)[-1]
+        if any(last.startswith(v) for v in self.READ_VERBS):
+            return True, None, None
+        try:
+            if action.startswith("iam.createserviceaccountkey") and det.get("response_name"):
+                name = det["response_name"]
+                self.c.post(f"{IAM}/{name}:disable")
+                return True, f"disabled key {name}", {"kind": "key", "name": name,
+                                                      "summary": f"key {name.rsplit('/', 1)[-1][:12]} disabled"}
+            if action.startswith("iam.createserviceaccount"):
+                email = det.get("response_email") or det.get("response_name", "").rsplit("/", 1)[-1]
+                if email:
+                    self.c.post(f"{IAM}/projects/-/serviceAccounts/{email}:disable")
+                    return True, f"disabled {email}", {"kind": "service_account", "email": email,
+                                                       "summary": f"{email} disabled"}
+            adds = [d for d in det.get("binding_deltas", []) if d.get("action") == "ADD"]
+            if adds and rec.resource.rstrip("/") == f"projects/{self.c.project}":
+                pol = self._policy()
+                for d in adds:
+                    for b in pol.get("bindings", []):
+                        if b["role"] == d["role"] and not b.get("condition"):
+                            b["members"] = [m for m in b.get("members", []) if m != d["member"]]
+                pol["bindings"] = [b for b in pol.get("bindings", []) if b.get("members")]
+                self._set_policy(pol)
+                return True, f"removed {len(adds)} role grant(s)", {
+                    "kind": "bindings", "adds": adds,
+                    "summary": ", ".join(f"{d['member']} {d['role']} removed" for d in adds)}
+            if action == "compute.firewalls.insert":
+                name = rec.resource.rsplit("/", 1)[-1]
+                self._op(self.c.patch(f"{self.c.compute}/global/firewalls/{name}", {"disabled": True}))
+                return True, f"disabled firewall {name}", {"kind": "firewall", "name": name,
+                                                           "summary": f"firewall {name} disabled"}
+        except GcpError as exc:
+            return False, f"{action} on {rec.resource}: revert failed: {exc}", None
+        return True, f"{action} on {rec.resource}: no automatic revert - human review", None
+
+    def undo_revert(self, undo: dict[str, Any]) -> tuple[bool, str]:
+        try:
+            k = undo.get("kind")
+            if k == "key":
+                self.c.post(f"{IAM}/{undo['name']}:enable")
+            elif k == "service_account":
+                self.c.post(f"{IAM}/projects/-/serviceAccounts/{undo['email']}:enable")
+            elif k == "bindings":
+                pol = self._policy()
+                for d in undo["adds"]:
+                    b = next((x for x in pol.setdefault("bindings", []) if x["role"] == d["role"]
+                              and not x.get("condition")), None)
+                    if b is None:
+                        pol["bindings"].append({"role": d["role"], "members": [d["member"]]})
+                    elif d["member"] not in b["members"]:
+                        b["members"].append(d["member"])
+                self._set_policy(pol)
+            elif k == "firewall":
+                self._op(self.c.patch(f"{self.c.compute}/global/firewalls/{undo['name']}", {"disabled": False}))
+            else:
+                return False, f"unknown revert kind {k}"
+        except GcpError as exc:
+            return False, str(exc)
+        return True, f"undid: {undo.get('summary', k)}"
 
     # ------------------------------------------------------------------ rollback / health
     def rollback(self, result: ActionResult) -> ActionResult:

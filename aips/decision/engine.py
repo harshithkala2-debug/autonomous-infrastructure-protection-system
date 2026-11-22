@@ -39,8 +39,8 @@ from .playbooks import Playbook, PlaybookLibrary
 from .strategies import Choice, StrategySelector
 from .verification import Verifier
 
-CONTAINMENT_KINDS = {"host.isolate", "identity.freeze", "identity.revoke_sessions", "network.block_port",
-                     "backup.hold_replication"}
+CONTAINMENT_KINDS = {"host.isolate", "identity.freeze", "identity.revoke_sessions", "identity.revert_actions",
+                     "network.block_port", "backup.hold_replication"}
 AVAILABILITY_KINDS = {"service.restart", "service.scale_out", "traffic.release", "config.restore_baseline",
                       "storage.expand", "package.upgrade"}
 EXCLUSIVE = {

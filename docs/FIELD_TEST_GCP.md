@@ -1,7 +1,8 @@
 # Field test: AIPS on a live Google Cloud project
 
-**Date:** 22 November 2026 · **AIPS version:** 1.2.x · **Result:** 6 of 6 live tests passed after fixes; 3 real
-bugs found and fixed.
+**Date:** 22 November 2026 · **AIPS version:** 1.2.x–1.3.0 · **Result:** 6 of 6 live safety tests passed after
+fixes; 3 real bugs found and fixed. Gaps then closed and verified live: attacker artifacts reverted (account,
+key, role grant), including late audit events.
 **Raw data (sanitised):** [`field-tests/gcp-live-2026-11-22.json`](field-tests/gcp-live-2026-11-22.json)
 
 ## Summary
@@ -73,17 +74,61 @@ rule-priority and deny-wins semantics.
   and the clean run passed 6/6.
 * An earlier rerun collided on reused test account names.
 
+## Gap fixes, verified live (second lab project, same day)
+
+The first test exposed gaps. They were closed and re-tested live in a second project without billing:
+`aips-lab-YYYYYY`, with two managed identities. Raw data:
+[`field-tests/gcp-live-revert-2026-11-22.json`](field-tests/gcp-live-revert-2026-11-22.json).
+
+**Revert what a contained identity did.** After freezing, AIPS reviews the identity's platform actions from its
+**first suspicious action onward**; legitimate work done earlier is left alone. It then reverses them
+reversibly:
+* created service accounts → disabled;
+* created keys → disabled;
+* role grants added → removed;
+* created firewall rules → disabled.
+
+Read-only calls are skipped, and anything else goes to a human for review. Every revert can be undone, and an
+incident that fails never auto-undoes a revert.
+
+**Late audit events.** Audit logs can arrive *after* the freeze. AIPS now re-checks frozen identities every cycle
+and reverts late actions too, through the same policy gate.
+
+| Time | Live event |
+|---|---|
+| 20:25:36–42 | `ops-sa`, a legitimate automation identity, creates and deletes an account → **no incident**, stays enabled |
+| 20:25:47 | Attack: `app-sa` creates `rogue-x` |
+| 20:26:00 | Attack: `app-sa` grants `rogue-x` `roles/viewer` on the project |
+| 20:26:07 | **+20 s:** `app-sa` frozen and disabled in IAM; `rogue-x` **disabled** |
+| 20:26:20 | The role grant arrives late in the audit log → **removed** by the late-event check |
+| 20:31:49 | Separate run: a key created by `app-sa` is detected and the **key disabled** in the first cycle |
+
+All results were confirmed with `gcloud`: `app-sa` disabled, `rogue-x` disabled, `rogue-x` no longer holds
+`roles/viewer`, the rogue key disabled, and `ops-sa` untouched. The audit-log formats AIPS relies on were
+confirmed live: `response.email` and `response.name` for created accounts and keys, and
+`serviceData.policyDelta.bindingDeltas` for role grants.
+
+**First attempt, recorded honestly.** The first run of this test started before newly granted roles had
+propagated, so Google refused every staged call. AIPS still froze `app-sa`, because of the *refused* attempt to
+change the project IAM policy from outside its network, and correctly reported that there were no platform
+changes to revert. The test was rerun after propagation.
+
+**Freezing human accounts.** Human Google accounts cannot be disabled through the IAM API. AIPS now freezes them
+by removing their role bindings on the project, which locks them out of it. It saves the removed roles so that
+an appeal restores them exactly, and it refuses to remove the project's last human owner. This is tested
+against the emulator only: the lab's only human account is the owner, whom AIPS correctly refuses to lock out.
+
 ## Known gaps (honest limits)
 
-* **Undoing the attacker's actions.** AIPS stopped the attacker, but did not remove what the attacker had
-  created (the rogue service accounts). That needs a follow-up capability: review, then revert the changes a
-  frozen identity made.
 * **Infrastructure half not tested live.** VM restart, MIG scaling, firewall containment and drift restore need a
-  billed project. They pass end-to-end against the emulator only.
-* **Small scale.** One project, one protected identity, one operator, and a short test window. Detection latency
-  is bounded below by Google's audit-log delivery (seconds to tens of seconds) and by the 15–20 s AIPS cycle.
-* **Human accounts.** A human Google account cannot be disabled through the IAM API. AIPS can freeze it
-  internally and notify, but it cannot lock it out on the platform.
+  billed project. They pass end-to-end against the emulator only. A no-cost route to live infrastructure testing
+  is a local Kubernetes cluster, which is not yet integrated.
+* **Scale.** Two projects, at most two managed identities, one operator and short windows. Detection latency
+  (20–55 s observed) is bounded below by Google's audit-log delivery and the 15–20 s AIPS cycle.
+* **Human-account freeze** has not been exercised live (see above).
+* **What revert covers.** Accounts, keys, project-level role grants and firewall rules. Other resource types
+  (for example storage objects or service-account-level IAM policies) are listed for human review rather than
+  reverted automatically.
 
 ## Reproducing
 

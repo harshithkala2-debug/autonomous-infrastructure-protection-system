@@ -128,5 +128,9 @@ Or delete the whole project: *IAM & Admin → Settings → Shut down*.
   need Cloud Armor rate-limiting rules or load-balancer capacity scaling, which is the next integration step.
 * **Scope.** Regional MIGs are discovered but not acted on, because actions target zonal MIGs. GKE workloads are
   not integrated yet.
-* **Human accounts.** Human users cannot be disabled through the IAM API. AIPS freezes them internally and
-  notifies a human, who disables them in the Admin console.
+* **Human accounts.** Human users cannot be disabled through the IAM API, so AIPS freezes them by removing their
+  project role bindings, restored exactly on appeal. It never removes the last human owner. To lock a human out
+  of *all* of Google, use the Admin console.
+* **Reverts** cover service accounts, keys, project role grants and firewall rules. Other changes are listed for
+  human review. Acting roles must include `roles/resourcemanager.projectIamAdmin` if role grants should be
+  reverted and humans frozen.

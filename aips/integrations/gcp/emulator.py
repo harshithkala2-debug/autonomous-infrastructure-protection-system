@@ -39,6 +39,9 @@ class FakeGcp:
         self.findings: list[dict[str, Any]] = []
         self.requests: list[tuple[str, str, Any]] = []
         self.fail: dict[str, int] = {}                  # url substring -> HTTP status to return
+        self.keys: dict[str, dict[str, Any]] = {}
+        self.policy: dict[str, Any] = {"version": 1, "etag": "etag-0", "bindings": [
+            {"role": "roles/owner", "members": ["user:owner@example.com"]}]}
         self._ids = itertools.count(1000)
         self._ops: dict[str, dict[str, Any]] = {}
 
@@ -74,11 +77,16 @@ class FakeGcp:
                                         "disabled": False}
 
     def audit(self, principal: str, service: str, method: str, resource: str, ip: str, ts: float,
-              code: int = 0) -> None:
-        self.log_entries.append({"insertId": f"e{next(self._ids)}", "timestamp": rfc3339(ts), "protoPayload": {
+              code: int = 0, response: dict | None = None, deltas: list[dict] | None = None) -> None:
+        payload = {
             "@type": "type.googleapis.com/google.cloud.audit.AuditLog", "serviceName": service, "methodName": method,
             "resourceName": resource, "authenticationInfo": {"principalEmail": principal},
-            "requestMetadata": {"callerIp": ip}, "status": {"code": code} if code else {}}})
+            "requestMetadata": {"callerIp": ip}, "status": {"code": code} if code else {}}
+        if response:
+            payload["response"] = response
+        if deltas:
+            payload["serviceData"] = {"policyDelta": {"bindingDeltas": deltas}}
+        self.log_entries.append({"insertId": f"e{next(self._ids)}", "timestamp": rfc3339(ts), "protoPayload": payload})
 
     # ------------------------------------------------------------------ transport
     def __call__(self, method: str, url: str, headers: dict[str, str], body: bytes | None) -> tuple[int, Any]:
@@ -100,6 +108,8 @@ class FakeGcp:
                 return 200, {"entries": out}
             if u.netloc == "iam.googleapis.com":
                 return self._iam(method, path)
+            if u.netloc == "cloudresourcemanager.googleapis.com":
+                return self._resource_manager(path, data)
             if u.netloc == "securitycenter.googleapis.com":
                 return 200, {"listFindingsResults": [{"finding": f} for f in self.findings]}
         except KeyError as exc:
@@ -196,6 +206,39 @@ class FakeGcp:
     def _iam(self, method: str, path: str) -> tuple[int, Any]:
         if method == "GET":
             return 200, {"accounts": [dict(a) for a in self.service_accounts.values()]}
-        email, verb = path.rsplit("/", 1)[-1].split(":")
-        self.service_accounts[email]["disabled"] = verb == "disable"
+        last = path.rsplit("/", 1)[-1]
+        target, _, verb = last.partition(":")
+        if "/keys/" in path:
+            self.keys[path.split(":")[0].split("/v1/", 1)[1]]["disabled"] = verb == "disable"
+            return 200, {}
+        self.service_accounts[target]["disabled"] = verb == "disable"
         return 200, {}
+
+    def _resource_manager(self, path: str, data: Any) -> tuple[int, Any]:
+        verb = path.rsplit(":", 1)[-1]
+        if verb == "getIamPolicy":
+            return 200, copy.deepcopy(self.policy)
+        if verb == "setIamPolicy":
+            new = data["policy"]
+            if new.get("etag") != self.policy["etag"]:
+                return 409, {"error": {"code": 409, "message": "etag mismatch (concurrent policy change)"}}
+            n = int(self.policy["etag"].split("-")[1]) + 1
+            self.policy = {**copy.deepcopy(new), "etag": f"etag-{n}"}
+            return 200, copy.deepcopy(self.policy)
+        raise KeyError(path)
+
+    # -- helpers for tests: what an attacker would do through the real API (and what Google would log) -------
+    def create_key(self, email: str) -> str:
+        name = f"projects/{self.project}/serviceAccounts/{email}/keys/k{next(self._ids)}"
+        self.keys[name] = {"name": name, "disabled": False}
+        return name
+
+    def grant(self, member: str, role: str) -> None:
+        b = next((x for x in self.policy["bindings"] if x["role"] == role), None)
+        if b is None:
+            self.policy["bindings"].append({"role": role, "members": [member]})
+        elif member not in b["members"]:
+            b["members"].append(member)
+
+    def members(self, role: str) -> list[str]:
+        return next((list(b["members"]) for b in self.policy["bindings"] if b["role"] == role), [])

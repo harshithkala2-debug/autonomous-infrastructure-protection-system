@@ -26,7 +26,7 @@ from .core.audit import AuditLedger
 from .core.bus import EventBus
 from .core.clock import Clock, SystemClock
 from .core.models import (ActionRequest, Disposition, Finding, IncidentStatus, Level, Verdict, to_jsonable)
-from .core.policy import ApprovalQueue, AuthorizationPolicy, PolicyConfig
+from .core.policy import ApprovalQueue, AuthorizationPolicy, Outcome, PolicyConfig
 from .decision.engine import DecisionEngine
 from .core.mesh import LayerMesh
 from .decision.playbooks import PlaybookLibrary, signal_rank
@@ -124,6 +124,7 @@ class AIPS:
         self.evaluator.mesh = self.mesh
         self._register_capabilities()
         self._pending: list[Finding] = []
+        self._revert_watermark: dict[str, float] = {}     # identity -> newest platform action already reviewed
         self._last_disposition: dict[str, Disposition] = {}
         self.last_obs: Observation | None = None
         self.ticks = 0
@@ -230,6 +231,8 @@ class AIPS:
             if req.kind == "identity.revoke_sessions":
                 n = self.guard.revoke_sessions(req.target)
                 return True, f"{n} session(s) revoked", None
+            if req.kind == "identity.revert_actions":
+                return self._revert_identity_actions(req)
             if req.kind == "identity.unfreeze":
                 was_frozen = self.guard.unfreeze(req.target)
                 hook = getattr(self.adapter, "freeze_identity", None)
@@ -262,6 +265,10 @@ class AIPS:
                 if hook:
                     hook(res.target, False)
                 return self.guard.unfreeze(res.target), "unfrozen by rollback"
+            if res.kind == "identity.revert_actions":
+                undo = getattr(self.adapter, "undo_revert", None)
+                done = [undo(r) for r in (res.rollback or {}).get("reverted", [])] if undo else []
+                return all(ok for ok, _ in done), f"{len(done)} revert(s) undone"
             return False, "no rollback"
 
         d.register("traffic.", traffic)
@@ -269,6 +276,65 @@ class AIPS:
         d.register("backup.", backup)
         d.register("notify.", notify)
         d.rollback_handlers["identity."] = identity_rollback
+
+    def _revert_late_actions(self) -> None:
+        """Audit logs arrive with a delay: an attacker's last actions can show up *after* the identity was frozen
+        and its actions reverted. Review those late actions too - through the same policy gate."""
+        now = self.clock.now()
+        for iid in list(self.guard.frozen):
+            if iid not in self._revert_watermark:
+                continue                                  # the playbook has not run its first revert yet
+            mark = self._revert_watermark[iid]
+            late = [r for r in self.guard.suspicious_actions(iid, now - 6 * 3600) if r.ts > mark]
+            if not late:
+                continue
+            req = ActionRequest("identity.revert_actions", iid, {"after_ts": mark}, Level.L3_DECISION,
+                                rationale=f"{len(late)} late platform action(s) by frozen identity")
+            decision = self.policy.evaluate(req, 3)
+            if decision.outcome == Outcome.ALLOW:
+                res = self.dispatcher.execute(req)
+                self.policy.record_execution(req)
+                self.audit.append("L3", "action.executed", {"kind": req.kind, "target": iid, "params": req.params,
+                                                            "success": res.success, "detail": res.detail,
+                                                            "reason": "late audit-log events"})
+            elif decision.outcome == Outcome.REQUIRE_APPROVAL:
+                ap = self.approvals.submit(req, decision.reason, decision.approvals_required)
+                self.notifier.send(f"Approval {ap.id}: revert late actions of {iid}", decision.reason, "high")
+                self._revert_watermark[iid] = max(r.ts for r in late)   # do not re-request every cycle
+
+    def _revert_identity_actions(self, req: ActionRequest) -> tuple[bool, str, dict | None]:
+        """Reverse what a contained identity did on the platform, from its first suspicious action onward."""
+        window = float(req.params.get("window_s", 6 * 3600))
+        after = req.params.get("after_ts")
+        actions = [r for r in self.guard.suspicious_actions(req.target, self.clock.now() - window)
+                   if after is None or r.ts > float(after)]
+        if actions:
+            self._revert_watermark[req.target] = max(r.ts for r in actions)
+        else:
+            self._revert_watermark.setdefault(req.target, self.clock.now() - window)
+        hook = getattr(self.adapter, "revert_action", None)
+        if not actions:
+            return True, "no platform changes to revert", {"reverted": []}
+        if hook is None:
+            return True, f"{len(actions)} action(s) need human review (adapter cannot revert)", {"reverted": []}
+        reverted, review, failed = [], [], []
+        for rec in actions:
+            ok, detail, undo = hook(rec)
+            if ok and undo is not None:
+                reverted.append(undo)
+            elif ok and detail:
+                review.append(detail)                     # nothing automatic is safe: a human decides
+            elif ok:
+                continue                                  # read-only call: nothing to revert
+            else:
+                failed.append(detail)
+        if review or failed:
+            self.notifier.send(f"Review actions of contained identity {req.target}",
+                               "; ".join(review + failed)[:2000], "high", {"identity": req.target})
+        detail = (f"reverted {len(reverted)}; {len(review)} for human review"
+                  + (f"; {len(failed)} failed: {'; '.join(failed)[:300]}" if failed else "")
+                  + (f" [{'; '.join(u.get('summary', '') for u in reverted)[:400]}]" if reverted else ""))
+        return not failed, detail, {"reverted": reverted}
 
     # ------------------------------------------------------------------ inputs
     def ingest_access(self, event: AccessEvent) -> AccessDecision:
@@ -328,7 +394,8 @@ class AIPS:
             try:
                 self.ingest_access(AccessEvent(ev["identity"], ev["action"], ev.get("resource", ""),
                                                float(ev.get("ts", now)), ev.get("source_ip"),
-                                               bool(ev.get("success", True)), ev.get("session")))
+                                               bool(ev.get("success", True)), ev.get("session"),
+                                               dict(ev.get("details") or {})))
             except (KeyError, TypeError, ValueError):
                 self.counters["bad_access_events"] += 1
         findings = self.fleet.run(obs, self.inventory, self.baselines, now)
@@ -381,6 +448,7 @@ class AIPS:
         self.verdict_log = self.verdict_log[-5000:]
 
         self.engine.tick(obs, current_keys)
+        self._revert_late_actions()
         self.traffic.tick(now, lambda a: not _case_key_asset(current_keys, a))
         new = [i for i in self.engine.incidents if i not in before]
         return TickReport(self.ticks, now, len(findings), len(l2), n3, dict(vcount),

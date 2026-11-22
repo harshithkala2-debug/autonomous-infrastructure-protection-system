@@ -1,0 +1,144 @@
+{
+  "note": "Sanitized: project id, owner, IPs masked; key ids shortened.",
+  "attempt_1_note": "First attempt: staged calls were refused (IAM_PERMISSION_DENIED) because newly granted roles had not propagated; AIPS still froze app-sa for the refused SetIamPolicy attempt and correctly reported no platform changes to revert.",
+  "multi_step_attack": {
+    "log": [
+      "[20:25:31] AIPS started (no-billing project, 2 managed identities)",
+      "[20:25:36] ops-sa legit: create ops-temp rc=0",
+      "[20:25:42] ops-sa legit: delete ops-temp rc=0",
+      "[20:25:47] ATTACK 1 create rogue-x rc=0 ",
+      "[20:25:52] ATTACK 2 create key for rogue-x rc=1 (local key file deleted) ied by the [core/account] property. Impersonation is used to impersonate app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com.",
+      "[20:26:00] ATTACK 3 grant rogue-x roles/viewer rc=0 ",
+      "[20:26:07]   identity:app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com: opened: boundary violation: app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com iam.createserviceaccount projects/aips-lab-YYYYYY [identity finding at HIGH bypasses Level 2]",
+      "[20:26:07]   identity:app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com: action: identity.freeze on app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com: ok app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com frozen in AIPS; platform: service account app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com disabled in Google Cloud",
+      "[20:26:07]   identity:app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com: action: identity.revoke_sessions on app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com: ok 0 session(s) revoked",
+      "[20:26:07]   identity:app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com: action: identity.revert_actions on app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com: ok reverted 1; 0 for human review [rogue-x@aips-lab-YYYYYY.iam.gserviceaccount.com disabled]",
+      "[20:26:07]   identity:app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com: action: notify.humans on identity:app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com: ok notified",
+      "[20:26:20]   identity:app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com: resolved: identity_frozen: app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com frozen=True",
+      "[20:26:20]   late revert: reverted 1; 0 for human review [serviceAccount:rogue-x@aips-lab-YYYYYY.iam.gserviceaccount.com roles/viewer removed]",
+      "[20:30:24] RESULT {\"app_sa_disabled\": \"True\", \"ops_sa_disabled\": \"\", \"rogue_disabled\": \"True\", \"rogue_user_keys(name,disabled)\": \"\", \"rogue_has_viewer\": false, \"frozen_in_aips\": [\"app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com\"], \"incidents\": [[\"identity:app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com\", \"boundary_violation\", \"resolved\"]], \"audit_ok\": true, \"captured_details\": {\"app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com\": [[\"iam.createserviceaccount\", true, {\"service\": \"iam.googleapis.com\", \"method\": \"google.iam.admin.v1.CreateServiceAccount\", \"response_email\": \"rogue-x@aips-lab-YYYYYY.iam.gserviceaccount.com\", \"response_name\": \"projects/aips-lab-YYYYYY/serviceAccounts/rogue-x@aips-lab-YYYYYY.iam.gserviceaccount.com\"}], [\"resourcemanager.setiampolicy\", true, {\"service\": \"cloudresourcemanager.googleapis.com\", \"method\": \"SetIamPolicy\", \"binding_deltas\": [{\"action\": \"ADD\", \"role\": \"roles/viewer\", \"member\": \"serviceAccount:rogue-x@aips-lab-YYYYYY.iam.gserviceaccount.com\"}]}]], \"ops-sa@aips-lab-YYYYYY.iam.gserviceaccount.com\": [[\"iam.createserviceaccount\", false, {\"service\": \"iam.googleapis.com\", \"method\": \"google.iam.admin.v1.CreateServiceAccount\", \"response_email\": \"ops-temp@aips-lab-YYYYYY.iam.gserviceaccount.com\", \"response_name\": \"projects/aips-lab-YYYYYY/serviceAccounts/ops-temp@aips-lab-YYYYYY.iam.gserviceaccount.com\"}], [\"iam.deleteserviceaccount\", false, {\"service\": \"iam.googleapis.com\", \"method\": \"google.iam.admin.v1.DeleteServiceAccount\"}]]}, \"seconds_since_attack\": 283}"
+    ],
+    "result": {
+      "app_sa_disabled": "True",
+      "ops_sa_disabled": "",
+      "rogue_disabled": "True",
+      "rogue_user_keys(name,disabled)": "",
+      "rogue_has_viewer": false,
+      "frozen_in_aips": [
+        "app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com"
+      ],
+      "incidents": [
+        [
+          "identity:app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com",
+          "boundary_violation",
+          "resolved"
+        ]
+      ],
+      "audit_ok": true,
+      "captured_details": {
+        "app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com": [
+          [
+            "iam.createserviceaccount",
+            true,
+            {
+              "service": "iam.googleapis.com",
+              "method": "google.iam.admin.v1.CreateServiceAccount",
+              "response_email": "rogue-x@aips-lab-YYYYYY.iam.gserviceaccount.com",
+              "response_name": "projects/aips-lab-YYYYYY/serviceAccounts/rogue-x@aips-lab-YYYYYY.iam.gserviceaccount.com"
+            }
+          ],
+          [
+            "resourcemanager.setiampolicy",
+            true,
+            {
+              "service": "cloudresourcemanager.googleapis.com",
+              "method": "SetIamPolicy",
+              "binding_deltas": [
+                {
+                  "action": "ADD",
+                  "role": "roles/viewer",
+                  "member": "serviceAccount:rogue-x@aips-lab-YYYYYY.iam.gserviceaccount.com"
+                }
+              ]
+            }
+          ]
+        ],
+        "ops-sa@aips-lab-YYYYYY.iam.gserviceaccount.com": [
+          [
+            "iam.createserviceaccount",
+            false,
+            {
+              "service": "iam.googleapis.com",
+              "method": "google.iam.admin.v1.CreateServiceAccount",
+              "response_email": "ops-temp@aips-lab-YYYYYY.iam.gserviceaccount.com",
+              "response_name": "projects/aips-lab-YYYYYY/serviceAccounts/ops-temp@aips-lab-YYYYYY.iam.gserviceaccount.com"
+            }
+          ],
+          [
+            "iam.deleteserviceaccount",
+            false,
+            {
+              "service": "iam.googleapis.com",
+              "method": "google.iam.admin.v1.DeleteServiceAccount"
+            }
+          ]
+        ]
+      },
+      "seconds_since_attack": 283
+    }
+  },
+  "key_revert": {
+    "log": [
+      "[20:31:43] AIPS started; key creation by app-sa happened just before start",
+      "[20:31:49]   identity:app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com: opened: boundary violation: app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com iam.createserviceaccountkey projects/-/serviceAccounts/108345762100037998459 [identity finding at HIGH bypasses Level 2]",
+      "[20:31:49]   identity:app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com: action: identity.freeze on app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com: ok app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com frozen in AIPS; platform: service account app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com disabled in Google Cloud",
+      "[20:31:49]   identity:app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com: action: identity.revoke_sessions on app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com: ok 0 session(s) revoked",
+      "[20:31:49]   identity:app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com: action: identity.revert_actions on app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com: ok reverted 1; 0 for human review [key a606e66bf2d8 disabled]",
+      "[20:31:49]   identity:app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com: action: notify.humans on identity:app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com: ok notified",
+      "[20:32:00]   identity:app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com: resolved: identity_frozen: app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com frozen=True",
+      "[20:34:43] RESULT {\"app_sa_disabled\": \"True\", \"ops_sa_disabled\": \"\", \"rogue_disabled\": \"True\", \"app_sa_user_keys(name,disabled)\": \"a606e66bf2d8...\\tTrue\", \"rogue_has_viewer\": false, \"frozen_in_aips\": [\"app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com\"], \"incidents\": [[\"identity:app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com\", \"boundary_violation\", \"resolved\"]], \"audit_ok\": true, \"captured_details\": {\"app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com\": [[\"iam.createserviceaccountkey\", true, {\"service\": \"iam.googleapis.com\", \"method\": \"google.iam.admin.v1.CreateServiceAccountKey\", \"response_name\": \"projects/aips-lab-YYYYYY/serviceAccounts/app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com/keys/a606e66bf2d8...\"}], [\"iam.createserviceaccountkey\", true, {\"service\": \"iam.googleapis.com\", \"method\": \"google.iam.admin.v1.CreateServiceAccountKey\", \"response_name\": \"projects/aips-lab-YYYYYY/serviceAccounts/app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com/keys/a606e66bf2d8...\"}]], \"ops-sa@aips-lab-YYYYYY.iam.gserviceaccount.com\": []}, \"seconds_since_attack\": null}"
+    ],
+    "result": {
+      "app_sa_disabled": "True",
+      "ops_sa_disabled": "",
+      "rogue_disabled": "True",
+      "app_sa_user_keys(name,disabled)": "a606e66bf2d8...\tTrue",
+      "rogue_has_viewer": false,
+      "frozen_in_aips": [
+        "app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com"
+      ],
+      "incidents": [
+        [
+          "identity:app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com",
+          "boundary_violation",
+          "resolved"
+        ]
+      ],
+      "audit_ok": true,
+      "captured_details": {
+        "app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com": [
+          [
+            "iam.createserviceaccountkey",
+            true,
+            {
+              "service": "iam.googleapis.com",
+              "method": "google.iam.admin.v1.CreateServiceAccountKey",
+              "response_name": "projects/aips-lab-YYYYYY/serviceAccounts/app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com/keys/a606e66bf2d8..."
+            }
+          ],
+          [
+            "iam.createserviceaccountkey",
+            true,
+            {
+              "service": "iam.googleapis.com",
+              "method": "google.iam.admin.v1.CreateServiceAccountKey",
+              "response_name": "projects/aips-lab-YYYYYY/serviceAccounts/app-sa@aips-lab-YYYYYY.iam.gserviceaccount.com/keys/a606e66bf2d8..."
+            }
+          ]
+        ],
+        "ops-sa@aips-lab-YYYYYY.iam.gserviceaccount.com": []
+      },
+      "seconds_since_attack": null
+    }
+  }
+}

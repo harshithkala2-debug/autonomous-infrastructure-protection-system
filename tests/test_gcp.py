@@ -275,6 +275,88 @@ class EndToEndTests(unittest.TestCase):
         incs = [i for i in aips.engine.incidents.values() if i.asset_id == "web"]
         self.assertTrue(incs and incs[0].status == IncidentStatus.RESOLVED, [(i.signal, i.status) for i in incs])
 
+    def test_contained_identity_actions_are_reverted(self):
+        g = project()
+        aips, clock = self.build(g)
+        sa = "app-sa@demo-project.iam.gserviceaccount.com"
+        rogue = "rogue@demo-project.iam.gserviceaccount.com"
+        self.run_ticks(aips, clock, 1)
+        # legitimate work first (inside the boundary): must NOT be reverted later
+        g.audit(sa, "storage.googleapis.com", "storage.objects.get", "projects/_/buckets/app/objects/report.csv",
+                "10.0.0.5", clock.now())
+        self.run_ticks(aips, clock, 1)
+        # then the attacker, acting as app-sa: rogue account, a key, and a role grant
+        g.add_service_account(rogue)
+        g.audit(sa, "iam.googleapis.com", "google.iam.admin.v1.CreateServiceAccount", "projects/demo-project",
+                "203.0.113.9", clock.now(), response={"email": rogue, "name": f"projects/demo-project/serviceAccounts/{rogue}"})
+        key = g.create_key(sa)
+        g.audit(sa, "iam.googleapis.com", "google.iam.admin.v1.CreateServiceAccountKey", f"projects/-/serviceAccounts/{sa}",
+                "203.0.113.9", clock.now(), response={"name": key})
+        g.grant(f"serviceAccount:{rogue}", "roles/editor")
+        g.audit(sa, "cloudresourcemanager.googleapis.com", "SetIamPolicy", "projects/demo-project", "203.0.113.9",
+                clock.now(), deltas=[{"action": "ADD", "role": "roles/editor", "member": f"serviceAccount:{rogue}"}])
+        self.run_ticks(aips, clock, 3)
+        self.assertTrue(g.service_accounts[sa]["disabled"])                          # attacker frozen
+        self.assertTrue(g.service_accounts[rogue]["disabled"], "rogue account disabled (not deleted)")
+        self.assertTrue(g.keys[key]["disabled"], "rogue key disabled")
+        self.assertNotIn(f"serviceAccount:{rogue}", g.members("roles/editor"), "rogue role grant removed")
+        acts = [a for i in aips.engine.incidents.values() for a in i.actions if a.kind == "identity.revert_actions"]
+        self.assertTrue(acts and acts[0].success, acts[0].detail if acts else "no revert action")
+        self.assertIn("reverted 3", acts[0].detail)
+        # undoing the revert (e.g. after an investigation shows it was legitimate) restores everything
+        adapter = aips.adapter
+        for u in acts[0].rollback["reverted"]:
+            self.assertTrue(adapter.undo_revert(u)[0])
+        self.assertFalse(g.service_accounts[rogue]["disabled"])
+        self.assertIn(f"serviceAccount:{rogue}", g.members("roles/editor"))
+
+    def test_late_audit_events_of_frozen_identity_are_reverted(self):
+        """Audit-log delay: the attacker's second action arrives after the freeze and first revert ran."""
+        g = project()
+        aips, clock = self.build(g)
+        sa = "app-sa@demo-project.iam.gserviceaccount.com"
+        self.run_ticks(aips, clock, 1)
+        r1, r2 = (f"r{i}@demo-project.iam.gserviceaccount.com" for i in (1, 2))
+        g.add_service_account(r1)
+        g.audit(sa, "iam.googleapis.com", "google.iam.admin.v1.CreateServiceAccount", "projects/demo-project",
+                "203.0.113.9", clock.now(), response={"email": r1})
+        self.run_ticks(aips, clock, 2)
+        self.assertTrue(g.service_accounts[r1]["disabled"])
+        g.add_service_account(r2)                                   # happened earlier, logged late
+        g.audit(sa, "iam.googleapis.com", "google.iam.admin.v1.CreateServiceAccount", "projects/demo-project",
+                "203.0.113.9", clock.now(), response={"email": r2})
+        self.run_ticks(aips, clock, 2)
+        self.assertTrue(g.service_accounts[r2]["disabled"], "late action reverted too")
+        self.assertTrue(any(r.event == "action.executed" and r.payload.get("reason") == "late audit-log events"
+                            for r in aips.audit.records()))
+
+    def test_human_accounts_frozen_through_project_bindings(self):
+        g = project()
+        a = GcpAdapter(client(g))
+        g.grant("user:mallory@example.com", "roles/editor")
+        g.grant("user:mallory@example.com", "roles/viewer")
+        ok, msg = a.freeze_identity("mallory@example.com", True)
+        self.assertTrue(ok, msg)
+        self.assertNotIn("user:mallory@example.com", g.members("roles/editor") + g.members("roles/viewer"))
+        ok, msg = a.freeze_identity("mallory@example.com", False)
+        self.assertTrue(ok, msg)
+        self.assertIn("user:mallory@example.com", g.members("roles/editor"))
+        self.assertIn("user:mallory@example.com", g.members("roles/viewer"))
+        ok, msg = a.freeze_identity("owner@example.com", True)                      # the only human owner
+        self.assertFalse(ok)
+        self.assertIn("last human owner", msg)
+        self.assertIn("user:owner@example.com", g.members("roles/owner"))
+
+    def test_audit_details_extraction(self):
+        from aips.integrations.gcp.sources import audit_details
+        d = audit_details({"serviceName": "iam.googleapis.com", "methodName": "x",
+                           "response": {"email": "r@p.iam.gserviceaccount.com", "private_key_data": "SECRET"},
+                           "serviceData": {"policyDelta": {"bindingDeltas": [
+                               {"action": "ADD", "role": "roles/owner", "member": "user:m@x.com"}]}}})
+        self.assertEqual(d["response_email"], "r@p.iam.gserviceaccount.com")
+        self.assertEqual(d["binding_deltas"][0]["role"], "roles/owner")
+        self.assertNotIn("SECRET", str(d))                                           # never keeps key material
+
     def test_service_account_misuse_is_frozen_in_iam(self):
         g = project()
         aips, clock = self.build(g)
