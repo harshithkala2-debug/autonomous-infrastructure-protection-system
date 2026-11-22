@@ -7,7 +7,9 @@ file names the *environment variable* that holds each one.
 
 from __future__ import annotations
 
+import logging
 import os
+import time
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -82,8 +84,13 @@ def build(cfg: dict[str, Any]) -> AIPS:
     if inv_path:
         inventory = Inventory.load(_p(base, inv_path))
     elif gcp_client is not None:
-        gcp_topology = GcpDiscovery(gcp_client).topology()
-        inventory = GcpDiscovery.inventory(gcp_topology, gcp_cfg.get("criticality", {}))
+        try:
+            gcp_topology = GcpDiscovery(gcp_client).topology()
+            inventory = GcpDiscovery.inventory(gcp_topology, gcp_cfg.get("criticality", {}))
+        except Exception as exc:  # noqa: BLE001 - expired token, network blip: start anyway and retry each cycle
+            logging.getLogger("aips.config").error("Google Cloud discovery failed at start-up (%s); "
+                                                   "AIPS will keep retrying every cycle", exc)
+            gcp_topology, inventory = None, Inventory([])
     else:
         raise ConfigError("[inventory] path is required (or a [gcp] section for automatic discovery)")
 
@@ -130,6 +137,12 @@ def build(cfg: dict[str, Any]) -> AIPS:
                                  scc=bool(gcp_cfg.get("security_command_center", False)),
                                  monitoring=bool(gcp_cfg.get("monitoring", True)))
         src.topology = gcp_topology
+        if gcp_topology is not None:
+            src._topo_at = time.time()
+        crit = dict(gcp_cfg.get("criticality", {}))
+        # continuous discovery: assets found later (new VMs, or after a failed start-up) join the inventory
+        src.on_topology = lambda topo: [inventory.add(a) for a in GcpDiscovery.inventory(topo, crit)
+                                        if inventory.get(a.id) is None]
         sources.append(src)
 
     audit_cfg = cfg.get("audit", {})

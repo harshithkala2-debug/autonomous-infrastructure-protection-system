@@ -1,0 +1,213 @@
+{
+  "note": "Sanitized: project id, owner account and IP addresses masked.",
+  "main_run": {
+    "duration_s": 540,
+    "gcp_stats": {
+      "access_events": 43,
+      "scc_findings": 0,
+      "metric_points": 0
+    },
+    "gcp_errors": {},
+    "audit_verified": true,
+    "identity_stats": {
+      "events": 43,
+      "auto_registered": 1,
+      "allowed": 41,
+      "findings": 1,
+      "denied_boundary": 1,
+      "freezes": 1,
+      "denied_frozen": 1
+    },
+    "incidents": [
+      {
+        "signal": "boundary_violation",
+        "status": "resolved",
+        "actions": [
+          "identity.freeze:ok",
+          "identity.revoke_sessions:ok",
+          "notify.humans:ok"
+        ],
+        "timeline": [
+          {
+            "event": "opened",
+            "detail": "boundary violation: app-sa@aips-lab-XXXXXX.iam.gserviceaccount.com iam.createserviceaccount projects/aips-lab-XXXXXX [identity finding at HIGH bypasses Level 2]"
+          },
+          {
+            "event": "action",
+            "detail": "identity.freeze on app-sa@aips-lab-XXXXXX.iam.gserviceaccount.com: ok app-sa@aips-lab-XXXXXX.iam.gserviceaccount.com frozen in AIPS; platform: service account app-sa@aips-lab-XXXXXX.iam.gserviceaccoun"
+          },
+          {
+            "event": "action",
+            "detail": "identity.revoke_sessions on app-sa@aips-lab-XXXXXX.iam.gserviceaccount.com: ok 0 session(s) revoked"
+          },
+          {
+            "event": "action",
+            "detail": "notify.humans on identity:app-sa@aips-lab-XXXXXX.iam.gserviceaccount.com: ok notified"
+          },
+          {
+            "event": "resolved",
+            "detail": "identity_frozen: app-sa@aips-lab-XXXXXX.iam.gserviceaccount.com frozen=True"
+          }
+        ]
+      }
+    ]
+  },
+  "live_suite": {
+    "project": "aips-lab-XXXXXX",
+    "duration_s": 289,
+    "results": [
+      {
+        "test": "L1 autonomous freeze, then appeal restores access in Google IAM",
+        "passed": true,
+        "checks": [
+          {
+            "check": "misuse detected and frozen autonomously",
+            "ok": true,
+            "detail": "24.3 s after staging"
+          },
+          {
+            "check": "account disabled in IAM before the appeal",
+            "ok": true,
+            "detail": "True"
+          },
+          {
+            "check": "self-approval of the appeal is refused",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "check": "appeal granted by a different reviewer",
+            "ok": true,
+            "detail": "unfrozen; platform: service account app-sa@aips-lab-XXXXXX.iam.gserviceaccount.com enabled in Google Cloud IAM"
+          },
+          {
+            "check": "account re-enabled in Google IAM (verified with gcloud)",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "check": "audit chain intact",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "rogue": "rogue-57632-101",
+        "detect_s": 24.3
+      },
+      {
+        "test": "L2 legitimate admin activity raises no incidents",
+        "passed": true,
+        "checks": [
+          {
+            "check": "the owner's real actions were read from the audit log",
+            "ok": true,
+            "detail": "5 access event(s)"
+          },
+          {
+            "check": "zero incidents",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "check": "app-sa untouched in IAM",
+            "ok": true,
+            "detail": ""
+          }
+        ]
+      },
+      {
+        "test": "L3 dry run plans the freeze without changing anything",
+        "passed": true,
+        "checks": [
+          {
+            "check": "misuse detected from the real audit log",
+            "ok": true,
+            "detail": "23 s after staging"
+          },
+          {
+            "check": "freeze recorded as dry-run",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "check": "account still ENABLED in Google IAM",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "rogue": "rogue-57753-102",
+        "detect_s": 28.6
+      },
+      {
+        "test": "L4 protected identity: approval requested, no automatic disable",
+        "passed": true,
+        "checks": [
+          {
+            "check": "misuse detected",
+            "ok": true,
+            "detail": "24 s after staging"
+          },
+          {
+            "check": "approval requested for the freeze",
+            "ok": true,
+            "detail": "target 'app-sa@aips-lab-XXXXXX.iam.gserviceaccount.com' is protected"
+          },
+          {
+            "check": "account still ENABLED in Google IAM",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "rogue": "rogue-57794-103"
+      },
+      {
+        "test": "L5 kill switch: waits for a human, then acts, then appeal restores",
+        "passed": true,
+        "checks": [
+          {
+            "check": "misuse detected and approval requested",
+            "ok": true,
+            "detail": "55 s"
+          },
+          {
+            "check": "account still enabled while approval pending",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "check": "after approval: frozen and DISABLED in Google IAM",
+            "ok": true,
+            "detail": "True"
+          },
+          {
+            "check": "after appeal: ENABLED again in Google IAM",
+            "ok": true,
+            "detail": ""
+          }
+        ],
+        "rogue": "rogue-57834-104"
+      },
+      {
+        "test": "L6 invalid credentials fail cleanly",
+        "passed": true,
+        "checks": [
+          {
+            "check": "`aips gcp check` exits non-zero with FAIL lines, no traceback",
+            "ok": true,
+            "detail": "FAIL  Compute Engine (VMs): HTTP 401: Request had invalid authentication credentials. Expected OAuth 2 access token, log"
+          },
+          {
+            "check": "AIPS keeps running; the failure is recorded, not raised",
+            "ok": true,
+            "detail": "{'topology': \"GcpError('HTTP 401: Request had invalid authentication credentials. Expected OAuth 2 access token, login cookie or other valid authentication cred"
+          },
+          {
+            "check": "nothing changed in IAM",
+            "ok": true,
+            "detail": ""
+          }
+        ]
+      }
+    ]
+  }
+}

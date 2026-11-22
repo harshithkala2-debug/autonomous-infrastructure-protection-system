@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ...telemetry.inventory import Asset, Inventory, SoftwareComponent
-from .client import IAM, GcpClient
+from .client import IAM, GcpClient, GcpError
 
 WORLD = {"0.0.0.0/0", "::/0"}
 
@@ -51,6 +51,7 @@ class GcpTopology:
     migs: dict[str, GcpMig] = field(default_factory=dict)
     firewalls: list[dict[str, Any]] = field(default_factory=list)
     service_accounts: list[dict[str, Any]] = field(default_factory=list)
+    compute_unavailable: str = ""          # set when the Compute Engine API is off (e.g. no billing)
 
     def instance_by_id(self, instance_id: str) -> GcpInstance | None:
         return next((i for i in self.instances.values() if i.id == str(instance_id)), None)
@@ -142,6 +143,22 @@ class GcpDiscovery:
     def topology(self) -> GcpTopology:
         c = self.c
         topo = GcpTopology(c.project)
+        try:
+            self._compute(topo)
+        except GcpError as exc:
+            # e.g. a project without billing, where the Compute Engine API cannot be enabled: identity
+            # protection (IAM + audit logs) still works, so carry on without VMs / MIGs / firewalls
+            if exc.status not in (403, 404):
+                raise
+            topo.compute_unavailable = str(exc)
+        try:
+            topo.service_accounts = list(c.pages(f"{IAM}/projects/{c.project}/serviceAccounts", "accounts"))
+        except Exception:  # noqa: BLE001 - IAM listing is optional (permission may be missing)
+            topo.service_accounts = []
+        return topo
+
+    def _compute(self, topo: GcpTopology) -> None:
+        c = self.c
         for scope, block in c.pages(f"{c.compute}/aggregated/instances", "items"):
             for i in block.get("instances", []):
                 nic = (i.get("networkInterfaces") or [{}])[0]
@@ -164,11 +181,6 @@ class GcpDiscovery:
                         topo.instances[name].mig = m["name"]
                 topo.migs[m["name"]] = mig
         topo.firewalls = list(c.pages(f"{c.compute}/global/firewalls", "items"))
-        try:
-            topo.service_accounts = list(c.pages(f"{IAM}/projects/{c.project}/serviceAccounts", "accounts"))
-        except Exception:  # noqa: BLE001 - IAM listing is optional (permission may be missing)
-            topo.service_accounts = []
-        return topo
 
     @staticmethod
     def inventory(topo: GcpTopology, criticality: dict[str, int] | None = None) -> Inventory:

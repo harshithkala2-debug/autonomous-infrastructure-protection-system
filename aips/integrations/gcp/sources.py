@@ -80,6 +80,7 @@ class GcpTelemetrySource(TelemetrySource):
         self._audit_since: float | None = None
         self._seen_findings: set[str] = set()
         self.errors: dict[str, str] = {}
+        self.on_topology: Callable[[GcpTopology], Any] | None = None   # e.g. merge new assets into the inventory
         self.stats = {"access_events": 0, "scc_findings": 0, "metric_points": 0}
 
     # ------------------------------------------------------------------ parts
@@ -87,6 +88,8 @@ class GcpTelemetrySource(TelemetrySource):
         if self.topology is None or now - self._topo_at >= self.refresh_s:
             self.topology = GcpDiscovery(self.c).topology()
             self._topo_at = now
+            if self.on_topology is not None:
+                self.on_topology(self.topology)
         return self.topology
 
     def _series(self, metric: str, extra: str, now: float) -> list[dict[str, Any]]:

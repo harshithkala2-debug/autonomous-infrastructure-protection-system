@@ -9,6 +9,6 @@ Proprietary, evaluation-only software: see LICENSE. No copying, modification or 
 without the owner's prior written permission.
 """
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 
 __all__ = ["__version__"]

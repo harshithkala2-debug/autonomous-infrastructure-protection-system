@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.1
+
+First **live Google Cloud field test**: a misuse was disabled in real IAM in 31 s, and 6 of 6 live safety tests
+passed. See `docs/FIELD_TEST_GCP.md`. Bugs it found, all fixed:
+
+* Discovery no longer aborts when the Compute Engine API is unavailable (for example, a project without
+  billing); identity protection runs regardless.
+* A granted appeal now restores access **on the platform** (re-enables the service account in IAM), not only
+  inside AIPS.
+* Invalid or expired credentials at start-up no longer crash AIPS. It starts, records the error, retries every
+  cycle, and merges discovered assets into the inventory once discovery succeeds. New VMs are picked up
+  continuously.
+
 ## 1.2.0
 
 * **Google Cloud integration** (`aips/integrations/gcp`, REST APIs, no Google SDK):

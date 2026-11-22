@@ -231,10 +231,12 @@ class AIPS:
                 n = self.guard.revoke_sessions(req.target)
                 return True, f"{n} session(s) revoked", None
             if req.kind == "identity.unfreeze":
-                ok = self.guard.unfreeze(req.target)
+                was_frozen = self.guard.unfreeze(req.target)
                 hook = getattr(self.adapter, "freeze_identity", None)
-                extra = f"; platform: {hook(req.target, False)[1]}" if (ok and hook) else ""
-                return ok, ("unfrozen" if ok else "identity was not frozen") + extra, None
+                if hook:                                   # always restore on the platform as well
+                    p_ok, msg = hook(req.target, False)
+                    return was_frozen or p_ok, f"unfrozen; platform: {msg}", None
+                return was_frozen, "unfrozen" if was_frozen else "identity was not frozen", None
             return False, f"unknown identity action {req.kind}", None
 
         def backup(req: ActionRequest):
@@ -424,11 +426,17 @@ class AIPS:
                       allow_action: str | None = None, allow_resource: str = "*") -> dict[str, Any]:
         rule = PermissionRule(allow_action, allow_resource) if allow_action else None
         a = self.guard.review_appeal(appeal_id, reviewer, grant, self.clock.now(), note, rule)
+        platform = None
+        if grant:
+            # restore access everywhere the freeze was enforced (e.g. re-enable a cloud service account)
+            res = self.dispatcher.execute(ActionRequest("identity.unfreeze", a.identity_id, {}, Level.HUMAN,
+                                                        rationale=f"appeal {a.id} granted by {reviewer}"))
+            platform = res.detail
         self.audit.append(reviewer, "appeal." + a.status.value,
                           {"appeal": a.id, "identity": a.identity_id, "note": note,
-                           "boundary_amended": bool(rule)})
+                           "boundary_amended": bool(rule), "restore": platform})
         return {"id": a.id, "status": a.status.value, "identity": a.identity_id,
-                "frozen": self.guard.is_frozen(a.identity_id)}
+                "frozen": self.guard.is_frozen(a.identity_id), "restore": platform}
 
     def _identity_false_positive(self, identity_id: str) -> None:
         for inc in list(self.engine.incidents.values()):

@@ -52,6 +52,15 @@ aips bench --seeds 1-20 --json benchmark.json
 This reports per scenario the pass rate, mean time to detect (MTTD), mean and p95 time to resolve (MTTR),
 actions taken and false-positive incidents. CI runs it on every push and uploads `benchmark.json`.
 
+## Field test: live Google Cloud project
+
+See [FIELD_TEST_GCP.md](FIELD_TEST_GCP.md):
+* identity protection against real Cloud Audit Logs and real IAM;
+* a staged misuse was disabled in IAM in 31 s;
+* 6 of 6 live safety tests passed (appeal, legitimate activity, dry run, protected identity, kill switch,
+  invalid credentials);
+* 3 bugs found and fixed.
+
 ## Field test: live dry run on a real workstation
 
 AIPS was run in `dry_run` mode against a real Windows 10 workstation. It used the host telemetry source (disk,

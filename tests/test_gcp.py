@@ -133,6 +133,37 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(alerts[0]["signal"], "scc:open_firewall")
         self.assertFalse([e for e in src.collect(T0 + 30).events if e["type"] == "alert"])   # de-duplicated
 
+    def test_project_without_compute_still_feeds_identity_guard(self):
+        g = project()
+        g.fail["compute.googleapis.com"] = 403             # e.g. no billing account: Compute API cannot be on
+        g.audit("app-sa@demo-project.iam.gserviceaccount.com", "iam.googleapis.com",
+                "google.iam.admin.v1.CreateServiceAccount", "projects/demo-project", "203.0.113.9", T0)
+        src = GcpTelemetrySource(client(g))
+        obs = src.collect(T0)
+        self.assertTrue(src.topology.compute_unavailable)
+        self.assertEqual(len(src.topology.service_accounts), 1)
+        self.assertEqual([e["action"] for e in obs.events if e["type"] == "access"], ["iam.createserviceaccount"])
+
+    def test_startup_survives_bad_credentials_and_recovers(self):
+        import tempfile
+        from unittest import mock
+
+        from aips.config import build
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch("aips.integrations.gcp.GcpDiscovery.topology", side_effect=GcpError(401, "bad token")):
+            aips = build({"_base": d, "aips": {"data_dir": "s", "dry_run": True},
+                          "gcp": {"project": "demo-project", "monitoring": False}})
+            self.assertEqual(len(aips.inventory), 0)                 # started anyway
+            aips.tick()                                              # still failing: recorded, not raised
+            self.assertIn("topology", aips.sources[0].errors)
+            aips.experience.close()
+        g = project()                                                # credentials fixed: discovery succeeds
+        src = aips.sources[0]
+        src.c = client(g)
+        src.collect(T0)
+        self.assertIsNotNone(aips.inventory.get("web"))              # assets merged into the live inventory
+        self.assertNotIn("topology", src.errors)
+
     def test_one_failing_api_does_not_blind_the_rest(self):
         g = project()
         g.fail["logging.googleapis.com"] = 403
@@ -257,6 +288,11 @@ class EndToEndTests(unittest.TestCase):
         self.run_ticks(aips, clock, 3)
         self.assertTrue(aips.guard.is_frozen(sa))
         self.assertTrue(g.service_accounts[sa]["disabled"], "freeze enforced in Google Cloud IAM")
+        ap = aips.submit_appeal(sa, "app-owner", "staged test")
+        res = aips.review_appeal(ap["id"], "security-reviewer", True, "ok")
+        self.assertFalse(aips.guard.is_frozen(sa))
+        self.assertFalse(g.service_accounts[sa]["disabled"], "granted appeal re-enables the account in IAM")
+        self.assertIn("enabled", res["restore"])
         self.assertTrue(aips.audit.verify()[0])
 
 

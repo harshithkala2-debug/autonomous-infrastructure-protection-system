@@ -31,8 +31,10 @@ optional and uses `cryptography`.
 
 > **Status: v1.2.0.** The complete system is implemented and tested. All 17 end-to-end scenarios pass on every
 > seed in the bundled simulator, the 87-test suite passes, AIPS has completed a live dry run on a real
-> workstation, and the Google Cloud integration passes end-to-end tests against an API emulator. It has not yet
-> been run against a live Google Cloud project. It has **not yet been validated on production
+> workstation, and the Google Cloud integration passes end-to-end tests against an API emulator. **On a live Google
+> Cloud project** AIPS detected a staged service-account misuse from the real audit log and disabled the account
+> in Google IAM within 31 seconds, passing 6 of 6 live safety tests. See
+> [docs/FIELD_TEST_GCP.md](docs/FIELD_TEST_GCP.md). It has **not yet been validated on production
 > infrastructure**. See [Limitations](#limitations). The original concept is in
 > [`autonomous_infrastructure_protection_system_plan.md`](autonomous_infrastructure_protection_system_plan.md).
 
