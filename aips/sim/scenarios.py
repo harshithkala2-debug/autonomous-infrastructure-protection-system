@@ -27,6 +27,7 @@ from ..backup.vault import Vault, VaultConfig
 from ..core.audit import AuditLedger
 from ..core.clock import ManualClock
 from ..core.models import IncidentStatus, reset_ids
+from ..experience.store import ExperienceStore
 from ..identity.guard import AccessEvent, Identity, PermissionBoundary, PermissionRule
 from ..intel.collectors import load_fixture, merge_advisories, parse_feed, parse_kev, parse_nvd, parse_osv
 from ..orchestrator import AIPS, AIPSConfig
@@ -60,11 +61,13 @@ class ScenarioResult:
 
 class SimEnvironment:
     def __init__(self, seed: int = 7, tick_s: float = 30.0, workdir: str | Path | None = None,
-                 config: AIPSConfig | None = None):
+                 config: AIPSConfig | None = None, experience_path: str | Path | None = None,
+                 start: float | None = None):
         reset_ids()
         self.seed, self.tick_s = seed, tick_s
-        self.clock = ManualClock(SIM_START)
-        self.inventory = default_inventory(SIM_START)
+        self.start = start if start is not None else SIM_START
+        self.clock = ManualClock(self.start)
+        self.inventory = default_inventory(self.start)
         self.sim = SimulatedInfrastructure(self.inventory, seed)
         self._own_workdir = workdir is None
         self.workdir = Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="aips-sim-"))
@@ -76,8 +79,11 @@ class SimEnvironment:
                                     BackupPolicy(interval_s=120), replication_ip="10.0.0.5")
         self.backup.asset_id = "files"
         self.sim.files_root = self.main
-        self.aips = AIPS(self.inventory, self.sim, [self.sim], clock=self.clock, config=config or AIPSConfig(),
-                         audit=AuditLedger(clock=self.clock, key=b"sim-audit-key"), backup=self.backup)
+        cfg = config or AIPSConfig(strategy_seed=seed)
+        self.experience = ExperienceStore(experience_path) if experience_path else None
+        self.aips = AIPS(self.inventory, self.sim, [self.sim], clock=self.clock, config=cfg,
+                         audit=AuditLedger(clock=self.clock, key=b"sim-audit-key"), backup=self.backup,
+                         experience=self.experience)
         self.sim.baselines = self.aips.baselines
         self._register_identities()
         first = self.sim.collect(self.clock.now())
@@ -168,6 +174,8 @@ class SimEnvironment:
         return n
 
     def cleanup(self) -> None:
+        if self.experience is not None:
+            self.experience.close()
         if self._own_workdir:
             shutil.rmtree(self.workdir, ignore_errors=True)
 
@@ -183,6 +191,7 @@ class Scenario:
     expected_assets: list[str]
     setup: Callable[[SimEnvironment], None]
     checks: Callable[[SimEnvironment], list[CheckOutcome]]
+    prepare: Callable[[int], dict[str, Any]] | None = None     # builds SimEnvironment kwargs (e.g. prior runs)
 
 
 def _resolved(env: SimEnvironment, asset: str) -> CheckOutcome:
@@ -450,6 +459,122 @@ def _checks_cert(env):
     return [_resolved(env, "api"), CheckOutcome("certificate renewed", left > 60 * 86400, f"{left / 86400:.0f} days")]
 
 
+LEARN_EPISODES = 10
+LEARN_GAP = 40
+
+
+def _setup_learning(env):
+    for k in range(LEARN_EPISODES):
+        s = 10 + LEARN_GAP * k
+        env.at(s, lambda e, s=s: e.sim.inject("traffic_surge", "api", s, s + 22, multiplier=2.6))
+
+        def reset(e):
+            e.sim.assets["api"].replicas = 3              # the platform scales back in after the surge
+        env.at(s + 34, reset)
+
+
+def _overload_episodes(env):
+    return sorted(env.aips.experience.episodes(signal="overload", limit=500), key=lambda ep: ep.started_at)
+
+
+def _checks_learning(env):
+    eps = _overload_episodes(env)
+    first_choice = [i.playbook for i in sorted(env.incidents("api"), key=lambda i: i.opened_at)]
+    stats = env.aips.experience.strategy_stats("overload", "api")
+    ranked = sorted(stats, key=lambda k: stats[k]["mean_reward"])
+    worst = ranked[0] if len(ranked) > 2 and stats[ranked[0]]["mean_reward"] < stats[ranked[1]]["mean_reward"] - 0.1 \
+        else None
+    late = [ep.strategy for ep in eps[-4:]]
+    explored = [ep for ep in eps if ep.explored]
+    return [
+        CheckOutcome("every overload strategy was tried", set(stats) >= {"overload-protection", "scale-first",
+                                                                         "shed-load"}, ", ".join(sorted(stats))),
+        CheckOutcome("exploration happened (non-greedy choices)", bool(explored), f"{len(explored)} explored"),
+        CheckOutcome("experience recorded every episode", len(eps) >= LEARN_EPISODES, f"{len(eps)} episodes"),
+        CheckOutcome("learned ranking: " + " < ".join(f"{k} {stats[k]['mean_reward']:.2f}" for k in ranked),
+                     worst is not None),
+        CheckOutcome("a clearly worse strategy was identified", worst is not None, f"worst: {worst}"),
+        CheckOutcome("the worst strategy is avoided once learned", worst is not None and late.count(worst) <= 1,
+                     f"last 4 episodes: {late}"),
+        CheckOutcome("every surge ended resolved", all(i.status == IncidentStatus.RESOLVED
+                                                       for i in env.incidents("api")),
+                     ", ".join(f"{i.id}:{i.status.value}" for i in env.incidents("api"))),
+        CheckOutcome("strategy sequence recorded", bool(first_choice), " -> ".join(first_choice)),
+    ]
+
+
+def _setup_transient(env):
+    env.at(15, lambda e: e.aips.set_kill_switch(True, "oncall", "change freeze"))
+    env.at(20, lambda e: e.sim.inject("config_tamper", "api", 20, 24, path="log_level", value="trace"))
+    for t in range(26, 40):
+        env.at(t, lambda e: e.approve_all("oncall"))
+
+
+def _checks_transient(env):
+    incs = env.incidents("api")
+    events = [t.event for i in incs for t in i.timeline]
+    calls = env.aips.mesh.stats
+    callers = {r.caller for r in env.aips.mesh.log}
+    return [
+        _resolved(env, "api"),
+        CheckOutcome("approved restore skipped: Level 1 re-scan showed the drift had cleared",
+                     "precheck_cleared" in events and not env.actions("config.restore_baseline")),
+        CheckOutcome("Level 3 called Level 1 dynamically", calls.get("L1.rescan", 0) >= 1, dict(calls).__repr__()),
+        CheckOutcome("several layers used the mesh", len(callers) >= 2, ", ".join(sorted(callers))),
+    ]
+
+
+CARRY_EPISODES = 3
+
+
+def _prepare_carryover(seed: int) -> dict[str, Any]:
+    """Run a *previous*, separate AIPS instance that learns and writes its experience to disk."""
+    d = Path(tempfile.mkdtemp(prefix="aips-exp-"))
+    db = d / "experience.db"
+    prev = SimEnvironment(seed=seed + 1000, experience_path=db)
+    try:
+        _setup_learning(prev)
+        prev.run(10 + LEARN_GAP * LEARN_EPISODES)
+    finally:
+        prev.cleanup()
+    # the new run starts a day later, as a fresh process
+    return {"experience_path": db, "start": SIM_START + 86400 * 2, "_cleanup": [str(d)]}
+
+
+def _setup_carryover(env):
+    env.notes["prior"] = env.aips.experience.summary()
+    env.notes["prior_stats"] = env.aips.experience.strategy_stats("overload", "api")
+    for k in range(CARRY_EPISODES):
+        s = 10 + LEARN_GAP * k
+        env.at(s, lambda e, s=s: e.sim.inject("traffic_surge", "api", s, s + 22, multiplier=2.6))
+
+        def reset(e):
+            e.sim.assets["api"].replicas = 3
+        env.at(s + 34, reset)
+
+
+def _checks_carryover(env):
+    prior = env.notes["prior"]
+    stats = env.notes["prior_stats"]
+    ranked = sorted(stats, key=lambda k: stats[k]["mean_reward"])
+    worst = ranked[0] if ranked else None
+    run_id = env.aips.experience.run_id
+    new_eps = [ep for ep in env.aips.experience.episodes(signal="overload", limit=500) if ep.run_id == run_id]
+    choices = [t.detail for i in env.incidents("api") for t in i.timeline if t.event == "strategy_selected"]
+    return [
+        CheckOutcome("experience from a previous, separate run was loaded from disk",
+                     prior["episodes"] >= LEARN_EPISODES, f"{prior['episodes']} episodes, {prior['runs']} run(s)"),
+        CheckOutcome("first decision used learned beliefs, not a cold start",
+                     bool(choices) and "canonical" not in choices[0], choices[0][:160] if choices else "none"),
+        CheckOutcome("the strategy learned to be worst was never used again",
+                     worst is not None and all(ep.strategy != worst for ep in new_eps),
+                     f"worst={worst}; used: {[ep.strategy for ep in new_eps]}"),
+        CheckOutcome("every surge resolved", all(i.status == IncidentStatus.RESOLVED for i in env.incidents("api"))),
+        CheckOutcome("history keeps growing across runs", env.aips.experience.summary()["runs"] >= 2,
+                     f"runs: {env.aips.experience.summary()['runs']}"),
+    ]
+
+
 SCENARIOS: dict[str, Scenario] = {s.name: s for s in [
     Scenario("service_crash", "API process crashes; web depends on it.", 60, 20, ["api"], ["api", "web"],
              _setup_service_crash, _checks_service_crash),
@@ -482,17 +607,27 @@ SCENARIOS: dict[str, Scenario] = {s.name: s for s in [
              _setup_kill_switch, _checks_kill_switch),
     Scenario("cert_expiry", "Certificate close to expiry is renewed.", 30, 10, ["api"], ["api"], _setup_cert,
              _checks_cert),
+    Scenario("strategy_learning", f"{LEARN_EPISODES} traffic surges; AIPS explores fixes and learns which works.",
+             10 + LEARN_GAP * LEARN_EPISODES, 10, ["api"], ["api", "web", "db"], _setup_learning, _checks_learning),
+    Scenario("transient_drift", "A config change undoes itself while approval is pending; nothing is changed.",
+             45, 20, ["api"], ["api"], _setup_transient, _checks_transient),
+    Scenario("experience_carryover", "A new AIPS process reuses what a previous run learned (persistent history).",
+             10 + LEARN_GAP * CARRY_EPISODES, 10, ["api"], ["api", "web", "db"], _setup_carryover,
+             _checks_carryover, _prepare_carryover),
 ]}
 
 
 def run_scenario(name: str, seed: int = 7, keep_env: bool = False) -> tuple[ScenarioResult, SimEnvironment | None]:
     sc = SCENARIOS[name]
-    env = SimEnvironment(seed=seed)
+    extra = sc.prepare(seed) if sc.prepare else {}
+    cleanup_dirs = extra.pop("_cleanup", [])
+    env = SimEnvironment(seed=seed, **extra)
+    env.notes["prepared"] = extra.pop("_info", None) if "_info" in extra else None
     try:
         sc.setup(env)
         env.run(sc.ticks)
         checks = sc.checks(env)
-        fault_ts = SIM_START + (sc.fault_tick - 1) * env.tick_s
+        fault_ts = env.start + (sc.fault_tick - 1) * env.tick_s
         detect = [env.first_finding[a] - fault_ts for a in sc.fault_assets if a in env.first_finding
                   and env.first_finding[a] >= fault_ts - env.tick_s]
         resolves = [i.resolved_at - fault_ts for a in sc.fault_assets for i in env.incidents(a)
@@ -515,6 +650,8 @@ def run_scenario(name: str, seed: int = 7, keep_env: bool = False) -> tuple[Scen
     finally:
         if not keep_env:
             env.cleanup()
+            for d in cleanup_dirs:
+                shutil.rmtree(d, ignore_errors=True)
 
 
 def benchmark(seeds: list[int], names: list[str] | None = None) -> dict[str, Any]:

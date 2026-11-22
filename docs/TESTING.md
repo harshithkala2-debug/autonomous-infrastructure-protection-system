@@ -12,7 +12,8 @@ python -m pytest            # or: python -m unittest discover -s tests -t .
 | `tests/test_detection_evaluation.py` | each detector, criticality adjustment, early forecast, security-sensitive drift, anomaly level shift; every Level 2 disposition, root cause, maintenance, suppression, transient expiry, learning; escalation bypass |
 | `tests/test_protection.py` | valve floor, shedding, token bucket, AIMD ramp; identity boundaries, risk, non-learning of risky events, failure bursts, freeze/revoke/appeal (reviewer ≠ submitter); backup incremental snapshot, vault restore, corruption, manifest tampering, vault IP gate, retention lock, IP privacy, ransomware guard and clean restore, GFS retention; command-injection refusal, dry-run |
 | `tests/test_intel.py` | version comparator (epochs, pre-releases, letter suffixes), ranges, NVD/KEV/OSV parsers, cross-source merge, confirmed / possible / not-affected relevance, de-duplication, postmortem pattern extraction, Atom, XML entity rejection, HTTPS-only fetcher |
-| `tests/test_system.py` | all 14 scenarios pass; selected scenarios across extra seeds; determinism; HTTP API (auth, incidents, approvals, metrics, audit verify, access events) |
+| `tests/test_learning.py` | layer mesh (discovery, loop and depth refusal, contained failures, audited mutations); experience store (persistence across instances, strategy stats, relapse, recurrence, similar, rewards); selector (untried-first, convergence to the best strategy, exclusion, no exploration for containment); the three learning scenarios on two seeds |
+| `tests/test_system.py` | all 17 scenarios pass; selected scenarios across extra seeds; determinism; HTTP API (auth, incidents, approvals, metrics, audit verify, access events) |
 
 ## Scenarios and success criteria
 
@@ -34,6 +35,9 @@ Run `aips demo -v` to see each scenario's checks and incident timeline.
 | false_alarm | single 2.6 s latency spike | **no** incident and **no** action |
 | kill_switch | operator suspends autonomy, then a cache crash | no autonomous action; approved actions still execute; resolved |
 | cert_expiry | certificate 5 days from expiry | renewed |
+| strategy_learning | 10 separate 2.6× traffic surges | every overload strategy tried; exploration happens; a clearly worse strategy is identified (shed-load relapses); the worst is used at most once in the last 4 episodes; every surge resolved |
+| transient_drift | config change that undoes itself while an approval is pending (kill switch on) | the approved restore is **skipped** because a Level 3 → Level 1 re-scan shows the drift has cleared; several layers used the mesh |
+| experience_carryover | a *previous, separate* AIPS run learns and writes `experience.db`; a new run starts a day later | history loaded from disk; first decision uses learned beliefs (not a cold start); the strategy learned to be worst is never used; history grows across runs |
 
 Every scenario also checks that the **audit chain is intact** and, where meaningful, that **no incidents were
 opened on unrelated assets**.

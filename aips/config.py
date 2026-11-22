@@ -19,7 +19,7 @@ from .core.audit import AuditLedger
 from .core.policy import PolicyConfig
 from .evaluation.escalation import EscalationConfig
 from .evaluation.evaluator import EvaluatorConfig
-from .evaluation.learning import OutcomeMemory
+from .experience.store import ExperienceStore
 from .identity.guard import Identity, PermissionBoundary
 from .monitoring.detectors import DEFAULT_THRESHOLDS, ThresholdRule
 from .orchestrator import AIPS, AIPSConfig
@@ -82,9 +82,12 @@ def build(cfg: dict[str, Any]) -> AIPS:
     policy = PolicyConfig.from_dict(cfg.get("policy", {}))
     if core.get("dry_run") is not None:
         policy.dry_run = bool(core["dry_run"])
+    strat = cfg.get("strategy", {})
     acfg = AIPSConfig(policy=policy, escalation=EscalationConfig.from_dict(cfg.get("escalation", {})),
                       evaluator=EvaluatorConfig.from_dict(cfg.get("evaluator", {})),
-                      valves=ValveConfig(**cfg.get("valves", {})), thresholds=thresholds)
+                      valves=ValveConfig(**cfg.get("valves", {})), thresholds=thresholds,
+                      strategy_exploration=bool(strat.get("exploration", True)),
+                      strategy_seed=int(strat.get("seed", 0)))
 
     acfg_adapter = cfg.get("adapter", {"type": "recording"})
     if acfg_adapter.get("type") == "command":
@@ -124,9 +127,11 @@ def build(cfg: dict[str, Any]) -> AIPS:
         backup.asset_id = b.get("asset_id", "backup")
 
     notifier = Notifier(cfg.get("notify", {}).get("webhooks", []))
+    exp_path = cfg.get("experience", {}).get("path")
+    experience = ExperienceStore(_p(base, exp_path) if exp_path else data_dir / "experience.db")
     aips = AIPS(inventory, adapter, sources, config=acfg, audit=audit,
                 baselines=DesiredStateStore(data_dir / "baselines.json"),
-                memory=OutcomeMemory(data_dir / "outcomes.json"), backup=backup, notifier=notifier)
+                backup=backup, notifier=notifier, experience=experience)
 
     for ident in cfg.get("identities", []):
         aips.guard.register(Identity(ident["id"], ident.get("kind", "human"), ident.get("owner", ""),

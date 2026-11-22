@@ -407,6 +407,27 @@ class Level1Fleet:
         return findings
 
 
+def inspect_asset(obs: Observation, asset_id: str, inventory: Inventory, baselines: DesiredStateStore,
+                  thresholds: list[ThresholdRule] | None, now: float) -> list[Finding]:
+    """Targeted, side-effect-free re-scan of one asset (used when another layer asks Level 1 to look again).
+
+    Uses fresh, stateless detector instances so it never disturbs the running fleet's streaks, EWMA
+    baselines or failure counters. Trend/statistical detectors are skipped: they need history, not a snapshot.
+    """
+    rules = [ThresholdRule(r.metric, r.op, r.value, r.severity, r.category, r.signal, 1, r.assets)
+             for r in (thresholds if thresholds is not None else DEFAULT_THRESHOLDS)]
+    ctx = DetectionContext(inventory, baselines, MetricHistory(), now)
+    sub = Observation(ts=obs.ts,
+                      metrics=[m for m in obs.metrics if m.asset_id == asset_id],
+                      service_up={k: v for k, v in obs.service_up.items() if k == asset_id},
+                      configs={k: v for k, v in obs.configs.items() if k == asset_id},
+                      open_ports={k: v for k, v in obs.open_ports.items() if k == asset_id})
+    out: list[Finding] = []
+    for d in (HealthDetector(), ThresholdDetector(rules), DriftDetector(baselines), PortExposureDetector()):
+        out.extend(f for f in d.detect(sub, ctx) if f.asset_id == asset_id)
+    return out
+
+
 def default_fleet(baselines: DesiredStateStore, thresholds: list[ThresholdRule] | None = None) -> Level1Fleet:
     return Level1Fleet([
         HealthDetector(),

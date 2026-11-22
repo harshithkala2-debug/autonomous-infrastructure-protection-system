@@ -5,6 +5,6 @@ findings through three decision levels, and repairs, contains, throttles or
 recovers affected components under an explicit authorisation policy.
 """
 
-__version__ = "1.0.1"
+__version__ = "1.1.0"
 
 __all__ = ["__version__"]

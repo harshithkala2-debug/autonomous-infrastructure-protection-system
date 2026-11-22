@@ -31,6 +31,13 @@ protected_targets = ["break-glass-*", "identity:break-glass-*"]
 global_actions_per_hour = 200
 two_person_rule_for_high = true
 
+[experience]
+path = "runtime/aips-data/experience.db"   # persistent history: episodes, strategies, detector outcomes
+
+[strategy]
+exploration = true                 # learn between alternative playbooks (never for containment / integrity)
+seed = 0                           # reproducible exploration
+
 [escalation]
 direct_severity = "CRITICAL"
 high_confidence_bypass = 0.9

@@ -31,10 +31,12 @@ from ..core.models import (ActionRequest, ActionResult, Category, Finding, Incid
                            Severity, Verdict, to_jsonable)
 from ..core.policy import ApprovalQueue, ApprovalStatus, AuthorizationPolicy, Outcome
 from ..evaluation.learning import OutcomeMemory
+from ..experience.store import Episode, reward_for
 from ..repair.executor import ActionDispatcher
 from ..telemetry.inventory import Inventory
 from ..telemetry.sources import Observation
 from .playbooks import Playbook, PlaybookLibrary
+from .strategies import Choice, StrategySelector
 from .verification import Verifier
 
 CONTAINMENT_KINDS = {"host.isolate", "identity.freeze", "identity.revoke_sessions", "network.block_port",
@@ -48,6 +50,8 @@ EXCLUSIVE = {
     "traffic.release": {"traffic.throttle", "traffic.restrict"},
 }
 ROOT_CAUSE_CATEGORIES = {Category.AVAILABILITY, Category.PERFORMANCE, Category.CAPACITY}
+PRECHECK_CATEGORIES = ROOT_CAUSE_CATEGORIES | {Category.CONFIGURATION}
+CHRONIC_WINDOW_S = 7 * 86400
 
 
 @dataclass
@@ -62,6 +66,15 @@ class Runtime:
     max_attempts: int = 3
     fingerprints: set[tuple[str, str]] = field(default_factory=set)
     keys: set[str] = field(default_factory=set)       # primary key + correlated symptom keys
+    # strategy exploration / experience
+    candidates: list[Playbook] = field(default_factory=list)
+    tried: list[str] = field(default_factory=list)
+    strategy_attempt: int = 1
+    explored: bool = False
+    episode_start: float = 0.0
+    episode_action_idx: int = 0
+    episode_seq: int = 0
+    last_episode_id: str | None = None
 
 
 class ConflictResolver:
@@ -95,11 +108,17 @@ class DecisionEngine:
 
     def __init__(self, policy: AuthorizationPolicy, approvals: ApprovalQueue, dispatcher: ActionDispatcher,
                  playbooks: PlaybookLibrary, inventory: Inventory, verifier: Verifier, audit: AuditLedger,
-                 bus: EventBus, clock: Clock, memory: OutcomeMemory, reopen_window_s: float = 900.0):
+                 bus: EventBus, clock: Clock, memory: OutcomeMemory, reopen_window_s: float = 900.0,
+                 selector: StrategySelector | None = None, experience: Any = None, mesh: Any = None,
+                 chronic_threshold: int = 3):
         self.policy, self.approvals, self.dispatcher = policy, approvals, dispatcher
         self.playbooks, self.inventory, self.verifier = playbooks, inventory, verifier
         self.audit, self.bus, self.clock, self.memory = audit, bus, clock, memory
         self.reopen_window = reopen_window_s
+        self.selector = selector
+        self.experience = experience
+        self.mesh = mesh
+        self.chronic_threshold = chronic_threshold
         self.incidents: dict[str, Incident] = {}
         self.runtime: dict[str, Runtime] = {}
         self.active_by_key: dict[str, str] = {}
@@ -143,6 +162,98 @@ class DecisionEngine:
 
     def active(self) -> list[Incident]:
         return [i for i in self.incidents.values() if i.active]
+
+    # ------------------------------------------------------------------ strategies & experience
+    def _choose(self, inc: Incident, rt: Runtime, exclude: list[str] | None = None) -> Choice | None:
+        cands = rt.candidates
+        if not cands:
+            return None
+        if self.selector is None:
+            pool = [c for c in cands if c.name not in (exclude or [])]
+            return Choice(pool[0], False, "fixed") if pool else None
+        has_history = bool(self.experience and self.experience.strategy_stats(inc.signal, inc.asset_id))
+        critical = self.inventory.criticality(inc.asset_id) >= 5
+        if not exclude and (not has_history or critical):
+            # cold start or business-critical asset: use the expert-reviewed canonical strategy
+            return Choice(cands[0], False, "fixed" if critical else "canonical")
+        return self.selector.choose(cands, inc.signal, inc.asset_id, exclude or [],
+                                    mode="switch" if exclude else "thompson")
+
+    def _apply_choice(self, inc: Incident, rt: Runtime, choice: Choice, event: str) -> None:
+        rt.playbook = choice.playbook
+        rt.tried.append(choice.playbook.name)
+        rt.strategy_attempt = 1
+        rt.explored = choice.explored
+        inc.playbook = choice.playbook.name
+        if choice.mode not in ("single",):
+            self._event(inc, event, choice.describe(),
+                        {"strategy": choice.playbook.name, "explored": choice.explored, "mode": choice.mode})
+
+    def _start_episode(self, inc: Incident, rt: Runtime) -> None:
+        rt.episode_start = self.clock.now()
+        rt.episode_action_idx = len(inc.actions)
+
+    def _record_episode(self, inc: Incident, rt: Runtime, outcome: str) -> None:
+        if self.experience is None or rt.playbook is None:
+            return
+        acts = inc.actions[rt.episode_action_idx:]
+        if any(a.dry_run for a in acts):
+            return                                   # dry runs teach nothing about effectiveness
+        now = self.clock.now()
+        rt.episode_seq += 1
+        run = getattr(self.experience, "run_id", "") or "run"
+        eid = f"{run}:{inc.id}#{rt.episode_seq}"
+        effective = [a for a in acts if not a.kind.startswith(("notify.", "traffic.release"))]
+        ep = Episode(eid, inc.id, inc.asset_id, inc.category.value, inc.signal, rt.playbook.name, rt.episode_start,
+                     outcome, reward_for(outcome, len(effective), now - rt.episode_start), now, inc.severity.name,
+                     inc.level.name, rt.strategy_attempt, len(effective), rt.explored, run,
+                     {"keys": sorted(rt.keys), "trigger": rt.trigger.title, "attempt": inc.attempts})
+        self.experience.record_episode(ep, [{"kind": a.kind, "target": a.target, "success": a.success,
+                                             "dry_run": a.dry_run, "detail": a.detail} for a in acts])
+        rt.last_episode_id = eid
+        self._start_episode(inc, rt)
+
+    def _next_strategy(self, inc: Incident, rt: Runtime, why: str) -> None:
+        """After a failed attempt: switch to the best untried strategy, else continue progressively."""
+        alt = self._choose(inc, rt, exclude=rt.tried) if len(rt.candidates) > 1 else None
+        if alt is not None:
+            self._apply_choice(inc, rt, alt, "strategy_switch")
+            inc.log(self.clock.now(), self._actor(inc), "strategy_reason", why)
+        else:
+            rt.strategy_attempt += 1
+
+    def _mesh(self, target: str, capability: str, payload: dict) -> Any:
+        if self.mesh is None or not self.mesh.has(target, capability):
+            return None
+        res = self.mesh.call("L3", target, capability, payload)
+        return res.value if res.ok else None
+
+    def _check_chronic(self, inc: Incident) -> None:
+        now = self.clock.now()
+        n = self._mesh("experience", "recurrence", {"asset": inc.asset_id, "signal": inc.signal,
+                                                    "since": now - CHRONIC_WINDOW_S})
+        if not n or n < self.chronic_threshold:
+            return
+        topic = f"chronic:{inc.asset_id}:{inc.signal}"
+        if self.experience is not None and not self.experience.has_note(topic, now - 86400):
+            self.experience.note(now, topic, f"{n} incidents in 7 days")
+            self._notify(inc, f"Chronic issue: {inc.signal} on {inc.asset_id} has occurred {n} times in 7 days; "
+                              "automation keeps fixing it but it needs a lasting fix", Severity.MEDIUM)
+        self._event(inc, "chronic", f"{n} previous incident(s) for this asset and signal in 7 days")
+
+    def _precheck(self, inc: Incident, rt: Runtime, kind: str) -> bool:
+        """Ask Level 1 for a fresh look before a MEDIUM+ risk repair. Returns False if the problem is gone."""
+        spec = self.policy.spec(kind)
+        if (spec is None or spec.risk < 2 or kind in CONTAINMENT_KINDS or inc.category not in PRECHECK_CATEGORIES
+                or inc.asset_id not in self.inventory.ids()):
+            return True
+        res = self._mesh("L1", "rescan", {"asset": inc.asset_id})
+        if res is None:
+            return True
+        if set(res.get("keys", [])) & rt.keys:
+            return True
+        self._event(inc, "precheck_cleared", f"Level 1 re-scan no longer sees {inc.signal}; skipping {kind}")
+        return False
 
     def _upstream_incident(self, asset_id: str) -> Incident | None:
         if asset_id not in self.inventory.ids():
@@ -215,18 +326,25 @@ class DecisionEngine:
                     self.active_by_key[k] = inc.id
                     self.recent_resolved.pop(k, None)
                 inc.findings.extend(f.id for f in findings)
+                if rt.last_episode_id and self.experience is not None:
+                    # the previous fix did not hold: that strategy only bought time
+                    self.experience.mark_relapse(rt.last_episode_id)
+                self._start_episode(inc, rt)
                 if inc.attempts > rt.max_attempts:
                     self._fail(inc, "recurred after resolution and attempts are exhausted")
                 else:
                     self._event(inc, "reopened", f"signal recurred within {self.reopen_window:.0f}s of resolution")
+                    self._next_strategy(inc, rt, "previous strategy's fix relapsed")
                 return inc
 
-        pb = self.playbooks.select(head.signal, head.category)
+        candidates = self.playbooks.candidates(head.signal, head.category)
+        pb = candidates[0] if candidates else None
         inc = Incident(asset_id=head.asset_id, category=head.category, signal=head.signal, severity=head.severity,
                        opened_at=now, level=level, playbook=pb.name if pb else None,
                        findings=[f.id for f in findings])
         rt = Runtime(pb, head, max_attempts=pb.max_attempts if pb else 1,
-                     fingerprints={(f.fingerprint, f.detector) for f in findings}, keys={key})
+                     fingerprints={(f.fingerprint, f.detector) for f in findings}, keys={key},
+                     candidates=candidates)
         self.incidents[inc.id] = inc
         self.runtime[inc.id] = rt
         self.active_by_key[key] = inc.id
@@ -235,6 +353,13 @@ class DecisionEngine:
                     {"severity": head.severity.name, "confidence": head.confidence,
                      "rationale": verdict.rationale if verdict else [reason],
                      "playbook": inc.playbook, "evidence": to_jsonable(head.evidence)})
+        if candidates:
+            choice = self._choose(inc, rt)
+            if choice is not None:
+                self._apply_choice(inc, rt, choice, "strategy_selected")
+                pb = rt.playbook
+        self._start_episode(inc, rt)
+        self._check_chronic(inc)
 
         if level == Level.L2_EVALUATION and pb and pb.level > Level.L2_EVALUATION:
             self._escalate(inc, f"playbook {pb.name} requires Level 3 authority")
@@ -285,7 +410,7 @@ class DecisionEngine:
     # ------------------------------------------------------------------ steps
     def _steps(self, inc: Incident, rt: Runtime):
         assert rt.playbook is not None
-        return [s for s in rt.playbook.steps if s.min_attempt <= inc.attempts]
+        return [s for s in rt.playbook.steps if s.min_attempt <= rt.strategy_attempt]
 
     def _escalate(self, inc: Incident, why: str) -> None:
         if inc.level >= Level.L3_DECISION:
@@ -310,6 +435,9 @@ class DecisionEngine:
             if conflict:
                 self._event(inc, "step_deferred", f"{req.kind} on {req.target}: {conflict}")
                 return
+            if not self._precheck(inc, rt, req.kind):
+                rt.step += 1
+                continue
             decision = self.policy.evaluate(req, self.inventory.criticality(inc.asset_id))
             if decision.outcome == Outcome.DENY:
                 spec = self.policy.spec(req.kind)
@@ -364,6 +492,11 @@ class DecisionEngine:
         rt.waiting = None
         if ap.status == ApprovalStatus.APPROVED:
             self._event(inc, "approval_granted", f"{ap.id} by {', '.join(ap.approvers)}")
+            if not self._precheck(inc, rt, ap.request.kind):
+                # the condition cleared while the approval was pending: do not change anything
+                rt.step += 1
+                inc.status = IncidentStatus.MITIGATING
+                return
             res = self._execute(inc, ap.request, rt.playbook.priority if rt.playbook else 9, ap.approvers)
             rt.step += 1
             inc.status = IncidentStatus.MITIGATING
@@ -406,11 +539,13 @@ class DecisionEngine:
             self._event(inc, "symptom_persists", f"{failed}; running own playbook")
             self._advance(inc)
             return
+        self._record_episode(inc, rt, "failed")
         if inc.attempts < rt.max_attempts:
             inc.attempts += 1
             rt.step = 0
             inc.status = IncidentStatus.MITIGATING
             self._event(inc, "retry", f"verification failed ({failed}); attempt {inc.attempts}/{rt.max_attempts}")
+            self._next_strategy(inc, rt, f"{rt.playbook.name if rt.playbook else '-'} did not pass verification")
             self._advance(inc)
             return
         if inc.level == Level.L2_EVALUATION:
@@ -418,6 +553,7 @@ class DecisionEngine:
             inc.attempts += 1
             rt.step = 0
             inc.status = IncidentStatus.MITIGATING
+            self._next_strategy(inc, rt, "escalated after Level 2 attempts")
             self._advance(inc)
             return
         self._fail(inc, f"verification failed after {inc.attempts} attempt(s): {failed}")
@@ -431,6 +567,7 @@ class DecisionEngine:
             req = ActionRequest("traffic.release", inc.asset_id, {"valve": "both"}, Level.L2_EVALUATION, inc.id,
                                 rationale="incident verified resolved")
             self._execute(inc, req, rt.playbook.priority)
+        self._record_episode(inc, rt, "resolved")
         for fp, det in rt.fingerprints:
             self.memory.record(fp, det, true_positive=True)
         for k in [k for k, v in self.active_by_key.items() if v == inc.id]:

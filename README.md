@@ -8,20 +8,23 @@ It puts the functions below into one coordinated control loop:
 
 | Capability | What AIPS does |
 |---|---|
-| **Three-level decision hierarchy** | Level 1 detection bots â†’ Level 2 evaluation â†’ Level 3 final decisions, with severity-based bypass straight to Level 3 |
+| **Three-level decision hierarchy** | Level 1 detection bots → Level 2 evaluation → Level 3 final decisions, with severity-based bypass straight to Level 3 |
 | **Specialised bots** | Health, threshold, anomaly (EWMA), capacity forecast, configuration drift, port exposure, certificate expiry and external-alert detectors |
 | **Identity & access protection** | Per-identity permission boundaries, a behavioural profile learned only from legitimate activity, risk scoring, freeze/revoke, and an **appeal workflow** for wrongly restricted users |
 | **Adaptive repair** | Records the known-good state, compares the live state against it, applies playbooks, verifies, retries step by step, rolls back on failure and hands off to humans |
 | **Two traffic-control valves** | An ingress valve and an internal valve per component. Token-bucket rate limiting and priority shedding while repairing, then AIMD ramp-up once the component is healthy |
-| **Layered backup & vault** | Main layer â†’ content-addressed backup copy â†’ write-once vault reachable only from the organisation's own networks. A mass-encryption (ransomware) guard keeps corrupted data out of the vault |
+| **Layered backup & vault** | Main layer → content-addressed backup copy → write-once vault reachable only from the organisation's own networks. A mass-encryption (ransomware) guard keeps corrupted data out of the vault |
 | **External intelligence** | NVD, CISA KEV, OSV and RSS/Atom postmortem feeds. Version-range relevance matching and failure-pattern checks against *your* environment |
 | **Safety & governance** | Risk-tiered policy, two-person rule for high-risk actions, kill switch, dry-run mode, rate limits against repair loops, protected targets, HMAC hash-chained audit log |
+| **Layer mesh: any layer can call any other** | Layers register capabilities and call each other at runtime. Level 2 asks Level 1 for a fresh re-scan when unsure; Level 3 re-checks with Level 1 before risky or approved actions; fleets escalate straight to Level 3. Loops and runaway call depth are refused. |
+| **Persistent experience** | A SQLite history of every episode (strategy, actions, outcome, reward, timing, relapses) and of each detector's accuracy. It survives restarts and drives chronic-issue escalation. |
+| **Automatic strategy exploration** | Several alternative playbooks per problem. AIPS starts with the reviewed default, tries each alternative once, then uses Thompson sampling to favour what works, and switches strategy when a fix fails or relapses. It never experiments with containment or on critical assets. |
 
-The core has **zero runtime dependencies** (Python â‰¥ 3.11 standard library only). AES-GCM backup encryption is
+The core has **zero runtime dependencies** (Python ≥ 3.11 standard library only). AES-GCM backup encryption is
 optional and uses `cryptography`.
 
-> **Status: v1.0.0.** The complete system is implemented and tested. All 14 end-to-end scenarios pass on every
-> seed in the bundled simulator, the 63-test suite passes, and AIPS has completed a live dry run on a real
+> **Status: v1.1.0.** The complete system is implemented and tested. All 17 end-to-end scenarios pass on every
+> seed in the bundled simulator, the 72-test suite passes, and AIPS has completed a live dry run on a real
 > workstation. It has **not yet been validated on production
 > infrastructure**. See [Limitations](#limitations). The original concept is in
 > [`autonomous_infrastructure_protection_system_plan.md`](autonomous_infrastructure_protection_system_plan.md).
@@ -69,22 +72,25 @@ Example (`aips demo --scenario ransomware -v`, abridged):
 
 | Scenario | Pass | MTTD | MTTR | Actions | False-positive incidents |
 |---|---|---|---|---|---|
-| service_crash | 100% | â‰¤1 cycle | 60 s | 3 | 0 |
-| crash_loop (must hand to humans) | 100% | â‰¤1 cycle | n/a, escalated | 17 | 0 |
-| dependency_failure (root cause) | 100% | â‰¤1 cycle | 60 s | 3 | 0 |
-| traffic_surge (valves) | 100% | â‰¤1 cycle | 60 s | 4 | 0 |
+| service_crash | 100% | ≤1 cycle | 60 s | 3 | 0 |
+| crash_loop (must hand to humans) | 100% | ≤1 cycle | n/a, escalated | 5 | 0 |
+| dependency_failure (root cause) | 100% | ≤1 cycle | 60 s | 3 | 0 |
+| traffic_surge (valves) | 100% | ≤1 cycle | 60 s | 4 | 0 |
 | disk_forecast (act before 90 %) | 100% | 93 s | 153 s | 1 | 0 |
-| config_drift (TLS disabled) | 100% | â‰¤1 cycle | 60 s | 1 | 0 |
-| exposed_port | 100% | â‰¤1 cycle | 60 s | 1 | 0 |
-| credential_misuse | 100% | â‰¤1 cycle | 30 s | 3 | 0 |
-| false_freeze_appeal | 100% | â‰¤1 cycle | n/a, appeal | 3 | 0 |
+| config_drift (TLS disabled) | 100% | ≤1 cycle | 60 s | 1 | 0 |
+| exposed_port | 100% | ≤1 cycle | 60 s | 1 | 0 |
+| credential_misuse | 100% | ≤1 cycle | 30 s | 3 | 0 |
+| false_freeze_appeal | 100% | ≤1 cycle | n/a, appeal | 3 | 0 |
 | ransomware | 100% | 30 s | 240 s* | 4 | 0 |
-| vulnerability_intel | 100% | â‰¤1 cycle | 120 s* | 6 | 0 |
-| false_alarm (must not act) | 100% | â€“ | â€“ | 0 | 0 |
-| kill_switch | 100% | â‰¤1 cycle | 300 s* | 3 | 0 |
-| cert_expiry | 100% | â‰¤1 cycle | 60 s | 1 | 0 |
+| vulnerability_intel | 100% | ≤1 cycle | 120 s* | 6 | 0 |
+| false_alarm (must not act) | 100% | – | – | 0 | 0 |
+| kill_switch | 100% | ≤1 cycle | 300 s* | 3 | 0 |
+| cert_expiry | 100% | ≤1 cycle | 60 s | 1 | 0 |
+| strategy_learning (10 surges, learns best fix) | 100% | ≤1 cycle | 60 s per surge | 30 total | 0 |
+| transient_drift (cleared before acting) | 100% | ≤1 cycle | 270 s* | 0 | 0 |
+| experience_carryover (new process reuses history) | 100% | ≤1 cycle | 60 s per surge | 10 total | 0 |
 
-\* includes the simulated time humans took to approve. "â‰¤1 cycle" means the fault was detected in the same
+\* includes the simulated time humans took to approve. "≤1 cycle" means the fault was detected in the same
 30-second cycle in which it was injected. These are **simulator** results. They show the logic is correct
 and repeatable, but they say nothing about performance on a real network. See [`docs/TESTING.md`](docs/TESTING.md).
 
@@ -98,7 +104,7 @@ flowchart LR
     T[Telemetry<br/>host / JSONL / adapters]
     A[Access events]
     B[Backup guard]
-    X[External intel<br/>NVD Â· KEV Â· OSV Â· feeds]
+    X[External intel<br/>NVD · KEV · OSV · feeds]
   end
   T --> L1[Level 1<br/>detector fleet]
   A --> IG[Identity guard]
@@ -124,16 +130,16 @@ flowchart LR
   VF --> M
 ```
 
-One **tick** runs the full workflow from concept Â§8: collect â†’ detect â†’ route â†’ evaluate â†’ decide â†’ act â†’
-verify â†’ ramp valves â†’ learn â†’ audit. Details are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). The
-complete technical specification, which answers every open item in concept Â§11, is in
+One **tick** runs the full workflow from concept §8: collect → detect → route → evaluate → decide → act →
+verify → ramp valves → learn → audit. Details are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). The
+complete technical specification, which answers every open item in concept §11, is in
 [`docs/SPECIFICATION.md`](docs/SPECIFICATION.md).
 
 ### The three levels
 
 * **Level 1** bots only *report*. A finding records the detector, category, severity (raised for business-critical
   assets), confidence, evidence and signal.
-* The **escalation router** sends a finding straight to Level 3 when it is CRITICAL, HIGH with â‰¥ 0.9 confidence,
+* The **escalation router** sends a finding straight to Level 3 when it is CRITICAL, HIGH with ≥ 0.9 confidence,
   or a HIGH security, identity or data-integrity finding. Everything else goes to Level 2.
 * **Level 2** groups findings into *cases* and judges them on:
   * corroboration by independent detectors
@@ -202,11 +208,12 @@ aips run --config examples/aips.toml        # starts in dry_run = true
 
 ```
 aips/
-  core/         models, event bus, audit ledger, authorisation policy, clocks
+  core/         models, event bus, layer mesh, audit ledger, authorisation policy, clocks
   telemetry/    inventory, telemetry sources
   monitoring/   Level 1 detector fleet
   evaluation/   escalation router, Level 2 evaluator, outcome memory
-  decision/     playbooks, Level 3 decision engine, verification
+  decision/     playbooks + variants, strategy selector, Level 3 decision engine, verification
+  experience/   persistent SQLite experience store
   repair/       known-good baselines, drift diff, action dispatcher, adapters
   traffic/      the two valves and their controller
   identity/     permission boundaries, behaviour profiles, freeze, appeals

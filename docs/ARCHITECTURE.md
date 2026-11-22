@@ -19,6 +19,34 @@ onto the implementation.
 | §7 External intelligence fleet | `aips/intel/{collectors,versions,relevance,patterns}.py` |
 | §8 End-to-end workflow | `aips/orchestrator.py`: `AIPS.tick()` |
 | §10 Demonstrations, tests, reproducible evidence | `aips/sim/`, `tests/`, `aips demo`, `aips bench` |
+| Any layer dynamically calls another | `aips/core/mesh.py`: `LayerMesh` (capabilities, loop/depth guards) |
+| Persistent, rich historical experience | `aips/experience/store.py`: `ExperienceStore` (SQLite) |
+| Automatic exploration of strategies | `aips/decision/strategies.py`: `StrategySelector` + playbook variants |
+
+## Layer mesh
+
+```
+            ┌──────────── L3.escalate ◄───────────── L1 / identity / backup / intel (bypass)
+            │
+  Level 3 ──┼── L1.rescan ──► Level 1    (is it still broken? just before a MEDIUM+ risk or approved action)
+            ├── experience.recurrence    (chronic issue?)
+            │
+  Level 2 ──┼── L1.rescan ──► Level 1    (uncertain case: corroborate or refute)
+            └── experience.recurrence    (recurring: escalate even if mild)
+
+  API ───────── read-only capabilities only (GET /mesh, POST /mesh/call)
+```
+
+## Learning loop
+
+```
+ incident opens ─► StrategySelector (canonical | untried | Thompson over ExperienceStore)
+       │                    ▲
+       ▼                    │ episodes: strategy, outcome, reward, actions, timing
+  playbook variant ─► verify ─┬─ pass ─► episode "resolved" ──┐
+                              └─ fail ─► episode "failed" ─► switch to best untried variant
+  fix relapses within 15 min ─► earlier episode re-scored "relapsed" (0.2) ─► switch variant
+```
 
 ## Control loop (`AIPS.tick`)
 

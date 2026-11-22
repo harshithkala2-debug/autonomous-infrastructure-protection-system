@@ -143,6 +143,7 @@ class SimulatedInfrastructure(TelemetrySource, InfrastructureAdapter):
                     path = f.params["path"].split(".")
                     for p in path[:-1]:
                         node = node.setdefault(p, {})
+                    f.params["_previous"] = node.get(path[-1])
                     node[path[-1]] = f.params["value"]
                 elif f.kind == "open_port" and first:
                     if f.params["port"] not in a.open_ports:
@@ -154,6 +155,12 @@ class SimulatedInfrastructure(TelemetrySource, InfrastructureAdapter):
             elif f.active and f.end is not None and t >= f.end:
                 f.active = False
                 f.cleared = True
+                if f.kind == "config_tamper":          # a transient change that undoes itself
+                    node = self.assets[f.asset].config
+                    path = f.params["path"].split(".")
+                    for p in path[:-1]:
+                        node = node.setdefault(p, {})
+                    node[path[-1]] = f.params.get("_previous")
 
     def _encrypt_files(self, fraction: float) -> None:
         if not self.files_root:

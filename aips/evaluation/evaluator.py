@@ -92,6 +92,8 @@ class Level2Evaluator:
         self._recent_by_asset: dict[str, deque[Finding]] = defaultdict(lambda: deque(maxlen=200))
         self._impaired: dict[str, float] = {}
         self.under_mitigation: Callable[[str], bool] = _never
+        self.mesh: Any = None                 # LayerMesh, set by the orchestrator
+        self.chronic_threshold = 3
         # must exceed the anomaly detector's level-shift window (10) so a sustained new normal is absorbed,
         # while recurring, intermittent unexplained anomalies still reach a human
         self.anomaly_persistence = 12
@@ -224,11 +226,26 @@ class Level2Evaluator:
             why.append(f"flapping: reappeared {len(recent_flaps)} times; escalating for stable fix")
             return verdict(Disposition.ESCALATE)
 
+        one_shot = head.detector.startswith(("intel.", "backup."))   # assessments, not streaming signals
+
+        # uncertain? ask Level 1 for a fresh, targeted look instead of guessing
+        if (self.mesh is not None and not one_shot and not case.signal.startswith("anomaly:")
+                and sev >= Severity.MEDIUM and cfg.dismiss_below * 0.5 <= conf < cfg.escalate_min
+                and case.asset_id in self.inventory.ids()):
+            res = self.mesh.call("L2", "L1", "rescan", {"asset": case.asset_id})
+            if res.ok and res.value is not None:
+                hits = [f for f in res.value.get("findings", []) if f.get("key") == case.key]
+                if hits:
+                    c2 = max(h["confidence"] for h in hits)
+                    conf = min(0.99, 1 - (1 - conf) * (1 - c2))
+                    why.append(f"reproduced by a fresh Level 1 re-scan (confidence {c2:.2f}); now {conf:.2f}")
+                else:
+                    conf *= 0.7
+                    why.append(f"not reproduced by a fresh Level 1 re-scan; confidence lowered to {conf:.2f}")
+
         if conf < cfg.dismiss_below:
             why.append(f"confidence below dismissal threshold {cfg.dismiss_below}")
             return verdict(Disposition.DISMISS)
-
-        one_shot = head.detector.startswith(("intel.", "backup."))   # assessments, not streaming signals
         if one_shot and self._l2_capable(case.signal) and sev < Severity.HIGH:
             why.append("one-shot assessment with a Level 2 review playbook")
             return verdict(Disposition.HANDLE)
@@ -247,6 +264,15 @@ class Level2Evaluator:
                 return verdict(Disposition.MONITOR)
             why.append("persistent unexplained anomaly; escalating for human review")
             return verdict(Disposition.ESCALATE)
+
+        # history: a problem that keeps coming back needs Level 3 attention even if each occurrence is mild
+        if self.mesh is not None and not one_shot and sev >= Severity.MEDIUM:
+            res = self.mesh.call("L2", "experience", "recurrence",
+                                 {"asset": case.asset_id, "signal": case.signal, "since": now - 7 * 86400})
+            n = res.value if res.ok and isinstance(res.value, int) else 0
+            if n >= self.chronic_threshold:
+                why.append(f"chronic: {n} previous incident(s) for this asset and signal in 7 days")
+                return verdict(Disposition.ESCALATE)
 
         if sev >= Severity.HIGH and conf >= cfg.escalate_min:
             why.append(f"{sev.name} severity: Level 3 decision required")

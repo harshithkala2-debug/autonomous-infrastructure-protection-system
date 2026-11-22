@@ -54,6 +54,12 @@ class Playbook:
     settle_ticks: int = 1
     release_valves: bool = True
     description: str = ""
+    explorable: bool = True          # may take part in automatic strategy exploration
+
+    def __post_init__(self) -> None:
+        # never experiment with containment or data-integrity responses
+        if self.priority <= PRIORITY_INTEGRITY:
+            self.explorable = False
 
     def matches(self, signal: str, category: Category) -> bool:
         if self.categories and category not in self.categories:
@@ -93,6 +99,50 @@ def default_playbooks() -> list[Playbook]:
                    Step("storage.expand", params={"grow_pct": 50}, min_attempt=2)],
             checks=[Check("metric_below", {"metric": "disk_used_pct", "value": 85}), Check("signal_clear")],
             priority=PRIORITY_AVAILABILITY),
+        # ---- alternative strategies (variants) for the same problems; chosen by StrategySelector ----
+        Playbook(
+            "restart-only", ["service_down", "error_rate_critical"], Level.L2_EVALUATION,
+            steps=[Step("service.restart"),
+                   Step("service.scale_out", params={"replicas": 1}, min_attempt=2)],
+            checks=[Check("healthy"), Check("metric_below", {"metric": "error_rate", "value": 0.05}),
+                    Check("signal_clear")],
+            priority=PRIORITY_AVAILABILITY,
+            description="Variant: restart immediately without shedding load first."),
+        Playbook(
+            "scale-then-restart", ["service_down", "error_rate_critical"], Level.L2_EVALUATION,
+            steps=[Step("service.scale_out", params={"replicas": 1}), Step("service.restart")],
+            checks=[Check("healthy"), Check("metric_below", {"metric": "error_rate", "value": 0.05}),
+                    Check("signal_clear")],
+            priority=PRIORITY_AVAILABILITY,
+            description="Variant: add a healthy replica first, then restart the failing one."),
+        Playbook(
+            "restart-early", ["error_rate_high"], Level.L2_EVALUATION,
+            steps=[Step("service.restart"),
+                   Step("traffic.throttle", params={"valve": "ingress", "position": 0.6}, min_attempt=2)],
+            checks=[Check("metric_below", {"metric": "error_rate", "value": 0.05}), Check("signal_clear")],
+            priority=PRIORITY_AVAILABILITY,
+            description="Variant: restart first, throttle only if that does not help."),
+        Playbook(
+            "scale-first", ["overload", "cpu_saturated", "latency_high"], Level.L2_EVALUATION,
+            steps=[Step("service.scale_out", params={"replicas": 2}),
+                   Step("traffic.throttle", params={"valve": "ingress", "position": 0.5}, min_attempt=2)],
+            checks=[Check("metric_below", {"metric": "saturation", "value": 0.8}), Check("signal_clear")],
+            priority=PRIORITY_PERFORMANCE,
+            description="Variant: add capacity immediately; throttle only if that is not enough."),
+        Playbook(
+            "shed-load", ["overload", "cpu_saturated", "latency_high"], Level.L2_EVALUATION,
+            steps=[Step("traffic.throttle", params={"valve": "ingress", "position": 0.4}),
+                   Step("service.scale_out", params={"replicas": 2}, min_attempt=2)],
+            checks=[Check("metric_below", {"metric": "saturation", "value": 0.8}), Check("signal_clear")],
+            priority=PRIORITY_PERFORMANCE,
+            description="Variant: protect the component by shedding load only (cheap, may not hold)."),
+        Playbook(
+            "expand-first", ["disk_forecast", "disk_full"], Level.L2_EVALUATION,
+            steps=[Step("storage.expand", params={"grow_pct": 50}),
+                   Step("storage.cleanup", params={"paths": ["logs/rotated", "tmp"]}, min_attempt=2)],
+            checks=[Check("metric_below", {"metric": "disk_used_pct", "value": 85}), Check("signal_clear")],
+            priority=PRIORITY_AVAILABILITY,
+            description="Variant: grow the volume first (needs Level 3 authority), clean up if still short."),
         Playbook(
             "config-restore", ["config_drift"], Level.L3_DECISION,
             steps=[Step("config.restore_baseline")],
@@ -174,10 +224,15 @@ class PlaybookLibrary:
         self.playbooks = playbooks if playbooks is not None else default_playbooks()
 
     def select(self, signal: str, category: Category) -> Playbook | None:
+        """The canonical (first-listed) playbook for a signal."""
         for pb in self.playbooks:
             if pb.matches(signal, category):
                 return pb
         return None
+
+    def candidates(self, signal: str, category: Category) -> list[Playbook]:
+        """Every strategy that can handle this signal, canonical first."""
+        return [pb for pb in self.playbooks if pb.matches(signal, category)]
 
     def get(self, name: str) -> Playbook | None:
         return next((p for p in self.playbooks if p.name == name), None)

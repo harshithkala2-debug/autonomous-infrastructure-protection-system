@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.1.0
+
+* **Layer mesh.** Any layer can dynamically call any other through registered capabilities, with discovery,
+  loop and depth refusal, contained failures, statistics and an audit trail.
+  * Level 2 asks Level 1 for a fresh re-scan when a case is uncertain.
+  * Level 3 re-checks with Level 1 before MEDIUM+ risk actions and before running an approved action.
+  * The bypass now calls `L3.escalate` directly.
+* **Persistent experience.** A SQLite `ExperienceStore` records every episode (strategy, actions, outcome,
+  reward, timing, relapse) plus detector outcomes, and survives restarts. It drives chronic-issue escalation and
+  persistent confidence calibration.
+* **Strategy exploration.** Playbook variants for service failure, elevated errors, overload and disk pressure.
+  * Selection: canonical on cold start, forced trial of untried variants, then Thompson sampling.
+  * Inside an incident, AIPS switches to an untried variant on failure or relapse.
+  * Never explores containment or integrity responses, or criticality-5 assets.
+* New scenarios: `strategy_learning`, `transient_drift`, `experience_carryover`.
+* New API endpoints `/mesh`, `/mesh/call` (read-only) and `/experience`; new CLI command `aips experience`;
+  new config sections `[experience]` and `[strategy]`.
+
 ## 1.0.1
 
 Found by the first live dry run on a real workstation:

@@ -107,6 +107,16 @@ class ApiTests(unittest.TestCase):
                                                         "resource": "vault/x", "source_ip": "203.0.113.1"})
         self.assertFalse(dec["allowed"])
         self.assertEqual(self.call("GET", "/nope")[0], 404)
+        st, mesh = self.call("GET", "/mesh")
+        self.assertEqual(st, 200)
+        self.assertTrue(any(c["layer"] == "L1" and c["capability"] == "rescan" for c in mesh["capabilities"]))
+        self.assertGreater(mesh["stats"]["calls"].get("L3.escalate", 0), 0)
+        st, res = self.call("POST", "/mesh/call", {"target": "L1", "capability": "rescan", "payload": {"asset": "db"}})
+        self.assertTrue(res["ok"])
+        self.assertEqual(self.call("POST", "/mesh/call", {"target": "L3", "capability": "escalate"})[0], 403)
+        st, exp = self.call("GET", "/experience?signal=service_down")
+        self.assertEqual(st, 200)
+        self.assertIn("summary", exp)
         self.assertEqual(self.call("POST", "/killswitch", {"engaged": False, "by": "test"})[0], 200)
 
 

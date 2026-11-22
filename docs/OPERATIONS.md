@@ -44,6 +44,9 @@ All endpoints except `/health` require `Authorization: Bearer <token>`.
 | POST | `/appeals` | `identity_id, submitted_by, reason` | appeal a freeze |
 | POST | `/appeals/{id}/review` | `reviewer, grant, note, allow_action, allow_resource` | decide an appeal; optionally amend the boundary |
 | POST | `/baselines/{asset}` | `approved_by` | record current config as known-good |
+| GET | `/mesh` | | layer capabilities, call statistics, recent inter-layer calls |
+| POST | `/mesh/call` | `target, capability, payload` | call a read-only capability (e.g. `L1.rescan`) |
+| GET | `/experience?signal=&asset=` | | history summary, per-strategy track record, similar past episodes |
 | GET | `/audit?limit=100&prefix=action.` | | audit records |
 | GET | `/audit/verify` | | verify the hash chain |
 

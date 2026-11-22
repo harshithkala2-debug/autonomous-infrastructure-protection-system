@@ -16,6 +16,7 @@ One ``tick`` is one end-to-end pass of the concept's workflow (section 8):
 from __future__ import annotations
 
 import logging
+import uuid
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Iterable
@@ -27,7 +28,10 @@ from .core.clock import Clock, SystemClock
 from .core.models import (ActionRequest, Disposition, Finding, IncidentStatus, Level, Verdict, to_jsonable)
 from .core.policy import ApprovalQueue, AuthorizationPolicy, PolicyConfig
 from .decision.engine import DecisionEngine
+from .core.mesh import LayerMesh
 from .decision.playbooks import PlaybookLibrary, signal_rank
+from .decision.strategies import StrategySelector
+from .experience.store import ExperienceStore
 from .decision.verification import Verifier
 from .evaluation.escalation import EscalationConfig, EscalationRouter
 from .evaluation.evaluator import EvaluatorConfig, Level2Evaluator
@@ -36,7 +40,7 @@ from .identity.guard import AccessDecision, AccessEvent, IdentityGuard, Permissi
 from .intel.models import Advisory, IncidentReport
 from .intel.patterns import EnvContext
 from .intel.relevance import RelevanceEngine
-from .monitoring.detectors import Level1Fleet, ThresholdRule, default_fleet
+from .monitoring.detectors import Level1Fleet, ThresholdRule, default_fleet, inspect_asset
 from .repair.baseline import DesiredStateStore
 from .repair.executor import ActionDispatcher, InfrastructureAdapter, Notifier
 from .telemetry.inventory import Inventory
@@ -54,6 +58,8 @@ class AIPSConfig:
     valves: ValveConfig = field(default_factory=ValveConfig)
     thresholds: list[ThresholdRule] | None = None
     backup_replicate_every_tick: bool = True
+    strategy_exploration: bool = True
+    strategy_seed: int = 0
 
 
 @dataclass
@@ -79,7 +85,7 @@ class AIPS:
                  baselines: DesiredStateStore | None = None, memory: OutcomeMemory | None = None,
                  backup: BackupManager | None = None, guard: IdentityGuard | None = None,
                  notifier: Notifier | None = None, playbooks: PlaybookLibrary | None = None,
-                 fleet: Level1Fleet | None = None):
+                 fleet: Level1Fleet | None = None, experience: ExperienceStore | None = None):
         self.clock = clock or SystemClock()
         self.config = config or AIPSConfig()
         self.inventory = inventory
@@ -88,7 +94,12 @@ class AIPS:
         self.bus = EventBus()
         self.audit = audit or AuditLedger(clock=self.clock)
         self.baselines = baselines or DesiredStateStore()
-        self.memory = memory or OutcomeMemory()
+        self.run_id = uuid.uuid4().hex[:10]
+        self.experience = experience or ExperienceStore(":memory:")
+        self.experience.run_id = self.experience.run_id or self.run_id
+        # the experience store doubles as persistent detector-outcome memory unless one is supplied explicitly
+        self.memory = memory or self.experience
+        self.mesh = LayerMesh(self.audit)
         self.backup = backup
         self.notifier = notifier or Notifier()
         self.playbooks = playbooks or PlaybookLibrary()
@@ -104,9 +115,14 @@ class AIPS:
         self.dispatcher = ActionDispatcher(adapter, self.clock.now, dry_run=self.config.policy.dry_run)
         self._register_handlers()
         self.verifier = Verifier(self.baselines, self.guard.is_frozen, adapter.health)
+        self.selector = StrategySelector(self.experience, self.config.strategy_seed,
+                                         enabled=self.config.strategy_exploration)
         self.engine = DecisionEngine(self.policy, self.approvals, self.dispatcher, self.playbooks, inventory,
-                                     self.verifier, self.audit, self.bus, self.clock, self.memory)
+                                     self.verifier, self.audit, self.bus, self.clock, self.memory,
+                                     selector=self.selector, experience=self.experience, mesh=self.mesh)
         self.evaluator.under_mitigation = self._under_mitigation
+        self.evaluator.mesh = self.mesh
+        self._register_capabilities()
         self._pending: list[Finding] = []
         self._last_disposition: dict[str, Disposition] = {}
         self.last_obs: Observation | None = None
@@ -115,6 +131,56 @@ class AIPS:
         self.verdict_log: list[Verdict] = []
         self.audit.append("system", "aips.started", {"assets": len(inventory), "sources": [s.name for s in self.sources],
                                                      "adapter": adapter.name, "dry_run": self.config.policy.dry_run})
+
+    # ------------------------------------------------------------------ layer mesh
+    def _register_capabilities(self) -> None:
+        m = self.mesh
+
+        def rescan(p: dict[str, Any]) -> dict[str, Any]:
+            asset = p["asset"]
+            now = self.clock.now()
+            obs = self.collect(now)
+            found = inspect_asset(obs, asset, self.inventory, self.baselines, self.config.thresholds, now)
+            return {"asset": asset, "keys": sorted({_case_key(f) for f in found}),
+                    "findings": [{"key": _case_key(f), "signal": f.signal, "severity": f.severity.name,
+                                  "confidence": f.confidence, "title": f.title} for f in found]}
+
+        def escalate(p: dict[str, Any]) -> str | None:
+            inc = self.engine.submit(Level.L3_DECISION, list(p["findings"]), p.get("reason", "direct escalation"),
+                                     p.get("verdict"))
+            return inc.id if inc else None
+
+        def incidents(p: dict[str, Any]) -> list[dict[str, Any]]:
+            return [{"id": i.id, "signal": i.signal, "status": i.status.value, "strategy": i.playbook}
+                    for i in self.engine.incidents.values() if i.asset_id == p.get("asset", i.asset_id)]
+
+        def case(p: dict[str, Any]) -> list[dict[str, Any]]:
+            return [{"key": c.key, "occurrences": c.occurrences, "max": c.max_disposition.value}
+                    for c in self.evaluator.cases.values() if c.asset_id == p["asset"]
+                    and (not p.get("signal") or c.signal == p["signal"])]
+
+        m.register("L1", "rescan", rescan, "fresh, side-effect-free detection pass on one asset")
+        m.register("L1", "probe", lambda p: {"up": self.adapter.health(p["asset"])}, "adapter health probe")
+        m.register("L2", "case", case, "Level 2's current view of an asset's cases")
+        m.register("L3", "escalate", escalate, "open or update a Level 3 incident directly")
+        m.register("L3", "incidents", incidents, "incidents for an asset")
+        m.register("experience", "recurrence",
+                   lambda p: self.experience.recurrence(p["asset"], p["signal"], float(p.get("since", 0))),
+                   "how many incidents this asset+signal had since a time")
+        m.register("experience", "similar",
+                   lambda p: self.experience.similar(p["signal"], p.get("asset"), int(p.get("limit", 5))),
+                   "most relevant past episodes")
+        m.register("experience", "strategy_stats",
+                   lambda p: self.experience.strategy_stats(p["signal"], p.get("asset")),
+                   "per-strategy track record for a signal")
+        m.register("experience", "summary", lambda p: self.experience.summary(), "what AIPS has lived through")
+        m.register("identity", "status", lambda p: {"frozen": self.guard.is_frozen(p["identity"]),
+                                                    "events_learned": self.guard.profiles[p["identity"]].events},
+                   "identity freeze / profile state")
+        m.register("traffic", "state", lambda p: [v for v in self.traffic.snapshot() if v["asset"] == p["asset"]],
+                   "valve positions for an asset")
+        if self.backup is not None:
+            m.register("backup", "status", lambda p: self.backup.status(), "backup layers and replication state")
 
     # ------------------------------------------------------------------ wiring
     def _under_mitigation(self, asset_id: str) -> bool:
@@ -270,7 +336,9 @@ class AIPS:
             level, reason = self.router.route(f)
             if level == Level.L3_DECISION:
                 n3 += 1
-                self.engine.submit(Level.L3_DECISION, [f], reason)
+                # the producing layer calls Level 3 directly through the mesh (bypass)
+                caller = "L1" if f.detector.startswith("l1.") else f.detector.split(".")[0]
+                self.mesh.call(caller, "L3", "escalate", {"findings": [f], "reason": reason})
             else:
                 l2.append(f)
         verdicts = self.evaluator.evaluate(l2, now)
@@ -367,6 +435,8 @@ class AIPS:
             "counters": dict(self.counters),
             "detectors": {k: vars(v) for k, v in self.fleet.stats.items()},
             "bus": self.bus.stats(),
+            "mesh": self.mesh.snapshot(),
+            "experience": {k: v for k, v in self.experience.summary().items() if k != "detectors"},
         }
 
     def incident_view(self, incident_id: str) -> dict[str, Any]:

@@ -23,6 +23,9 @@ Endpoints::
     POST /appeals                         {"identity_id", "submitted_by", "reason"}
     POST /appeals/{id}/review             {"reviewer","grant","note","allow_action","allow_resource"}
     POST /baselines/{asset}               {"approved_by"} - capture current config as known-good
+    GET  /mesh                            layer capabilities, call statistics, recent inter-layer calls
+    POST /mesh/call                       {"target","capability","payload"} - read-only capabilities only
+    GET  /experience[?signal=&asset=]     history summary, per-strategy track record, similar episodes
     GET  /audit?limit=100                 recent audit records
     GET  /audit/verify                    verify the hash chain
 """
@@ -177,6 +180,32 @@ def make_handler(aips: AIPS, token: str, lock: threading.RLock) -> type[BaseHTTP
     def audit(q, b):
         limit = min(1000, int(q.get("limit", ["100"])[0]))
         return [r.__dict__ for r in aips.audit.records(q.get("prefix", [None])[0], limit)]
+
+    @route("GET", "/mesh")
+    def mesh(q, b):
+        return {"capabilities": aips.mesh.capabilities(), "stats": aips.mesh.snapshot(),
+                "recent": aips.mesh.recent(int(q.get("limit", ["50"])[0]))}
+
+    @route("POST", "/mesh/call")
+    def mesh_call(q, b):
+        need(b, "target", "capability")
+        caps = {(c["layer"], c["capability"]): c for c in aips.mesh.capabilities()}
+        cap = caps.get((b["target"], b["capability"]))
+        if cap is None:
+            raise ApiError(404, "unknown capability")
+        if cap["mutating"] or b["capability"] == "escalate":
+            raise ApiError(403, "only read-only capabilities can be called over the API")
+        res = aips.mesh.call("api", b["target"], b["capability"], b.get("payload") or {})
+        return {"ok": res.ok, "value": res.value, "error": res.error}
+
+    @route("GET", "/experience")
+    def experience(q, b):
+        sig = q.get("signal", [None])[0]
+        out = {"summary": aips.experience.summary()}
+        if sig:
+            out["strategies"] = aips.experience.strategy_stats(sig, q.get("asset", [None])[0])
+            out["similar"] = aips.experience.similar(sig, q.get("asset", [None])[0], 10)
+        return out
 
     @route("GET", "/audit/verify")
     def audit_verify(q, b):

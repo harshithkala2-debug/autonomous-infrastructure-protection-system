@@ -226,6 +226,79 @@ and an attacker who does not hold the key cannot alter, delete or reorder record
   * metrics through `GET /metrics`
 * **Secrets:** environment variables only (`*_env` keys). The API token must be at least 16 characters.
 
+## 13a. Dynamic inter-layer calls (layer mesh)
+
+`aips/core/mesh.py::LayerMesh`. Every layer registers named capabilities, and any layer can call any other
+with `mesh.call(caller, target, capability, payload)`. The fixed pipeline (L1 → L2 → L3) is only the default path.
+
+| Capability | Provided by | Used by | Why |
+|---|---|---|---|
+| `L1.rescan` | Level 1 (fresh, side-effect-free detection pass on one asset) | Level 2, Level 3, API | L2: corroborate or refute an uncertain case. L3: confirm the problem still exists before a MEDIUM+ risk action, and again before running an approved action. |
+| `L1.probe` | Level 1 / adapter | any | direct liveness check |
+| `L2.case` | Level 2 | any | Level 2's current view of an asset |
+| `L3.escalate` | Level 3 | Level 1, identity, backup and intel fleets | the bypass: a producing layer opens or updates an incident directly |
+| `L3.incidents` | Level 3 | any | incidents for an asset |
+| `experience.recurrence / similar / strategy_stats / summary` | experience store | Level 2, Level 3, API | history-aware decisions |
+| `identity.status`, `traffic.state`, `backup.status` | the fleets | any | cross-fleet context |
+
+Safety properties:
+* A call already on the current call stack (same target, capability and payload) is refused, so A → B → A
+  loops cannot happen.
+* Calls deeper than `max_depth` (4) are refused.
+* A failing capability returns an error result; it never raises into the caller.
+* Every call is counted and logged (`GET /mesh`). Capabilities marked `mutating` are written to the audit ledger.
+* The HTTP API can call only read-only capabilities.
+
+## 13b. Persistent historical experience
+
+`aips/experience/store.py::ExperienceStore` is a SQLite database (`[experience] path`, default
+`<data_dir>/experience.db`). It survives restarts and is shared by every run that points at it.
+
+| Table | Contents |
+|---|---|
+| `episodes` | one row per attempt to fix an incident with one strategy: asset, signal, category, severity, level, strategy, start/end, outcome (`resolved`, `failed`, `relapsed`, `handed_off`), reward, attempt, number of actions, whether it was exploratory, run id, context |
+| `actions` | every action of every episode, with its result |
+| `detector_outcomes` | true- and false-positive counts per detector and per finding fingerprint. This is the persistent form of outcome memory and feeds Level 2's confidence calibration. |
+| `notes` | annotations such as chronic-issue notices (de-duplicated per day) |
+
+**Reward.** A resolution scores about 1, minus a small cost per action (0.03, capped at 0.25) and per hour to
+resolve (capped at 0.15). A fix that *relapses* within the reopen window is re-scored to 0.2. Failures score 0.
+Dry-run episodes are never recorded, because they say nothing about how well a strategy works.
+
+**How history is used:**
+* **Level 2:** an asset and signal with 3 or more incidents in 7 days is escalated as *chronic*, even when each
+  occurrence is mild.
+* **Level 3:** a chronic issue triggers a one-per-day human notice ("automation keeps fixing it, but it needs a
+  lasting fix").
+* **Strategy selection** (§13c).
+* **Detector confidence calibration.**
+
+## 13c. Automatic strategy exploration
+
+`aips/decision/strategies.py::StrategySelector`. Signals can have several playbook *variants*:
+
+| Signal family | Variants (canonical first) |
+|---|---|
+| `service_down`, `error_rate_critical` | service-recovery, restart-only, scale-then-restart |
+| `error_rate_high` | elevated-errors, restart-early |
+| `overload`, `cpu_saturated`, `latency_high` | overload-protection, scale-first, shed-load |
+| `disk_forecast`, `disk_full` | storage-pressure, expand-first |
+
+**Selection:**
+1. With no history for the signal, the expert-reviewed **canonical** variant is used.
+2. Any variant never tried yet is tried once (**forced exploration**).
+3. After that, **Thompson sampling** applies. Each variant has a belief Beta(1 + Σreward, 1 + Σ(1 − reward)),
+   with episodes on the same asset weighted ×2. One sample is drawn from each belief and the highest sample wins.
+   Strong variants are therefore used more and more often, while uncertain ones still get an occasional chance.
+4. **Inside one incident:** when an attempt fails verification, or a fix relapses, the next attempt switches to
+   the best variant not yet tried in that incident.
+
+**Limits on exploration:**
+* Playbooks with containment or data-integrity priority are never explorable.
+* Criticality-5 assets always use the canonical or best-known variant.
+* Every step of every variant still passes the authorisation policy, so exploring can never gain more autonomy.
+* Selection is seeded (`[strategy] seed`), so runs are reproducible.
+
 ## 13. Test scenarios, benchmarks and success criteria
 
 See [`TESTING.md`](TESTING.md). Every scenario has explicit, machine-checked success criteria. `aips bench`

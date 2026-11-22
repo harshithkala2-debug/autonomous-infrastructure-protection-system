@@ -7,6 +7,7 @@
     aips audit verify FILE [--key-env VAR]
     aips backup {snapshot,replicate,verify,restore,drill,prune,status} --config aips.toml
     aips intel assess --config aips.toml [--offline] [--sources nvd,kev,osv,feeds]
+    aips experience --db aips-data/experience.db [--signal overload] [--asset api]
     aips version
 """
 
@@ -212,6 +213,31 @@ def cmd_intel(args) -> int:
     return 0
 
 
+def cmd_experience(args) -> int:
+    from .experience.store import ExperienceStore
+    if not Path(args.db).exists():
+        print(f"no experience database at {args.db}", file=sys.stderr)
+        return 2
+    st = ExperienceStore(args.db)
+    try:
+        s = st.summary()
+        print(f"{s['episodes']} episodes, {s['incidents']} incidents, {s['runs']} run(s)  [{s['path']}]")
+        print("outcomes:", ", ".join(f"{k}={v}" for k, v in s["outcomes"].items()) or "-")
+        signals = [args.signal] if args.signal else list(s["top_signals"])
+        for sig in signals:
+            stats = st.strategy_stats(sig, args.asset)
+            if not stats:
+                continue
+            print(f"\n{sig}")
+            print(f"  {'strategy':24s} {'trials':>6s} {'success':>8s} {'reward':>7s} {'mean TTR':>9s}")
+            for name, v in sorted(stats.items(), key=lambda kv: -kv[1]["mean_reward"]):
+                ttr = f"{v['mean_ttr_s']:.0f}s" if v["mean_ttr_s"] is not None else "-"
+                print(f"  {name:24s} {v['trials']:6.0f} {v['successes']:8.0f} {v['mean_reward']:7.2f} {ttr:>9s}")
+    finally:
+        st.close()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="aips", description="Autonomous Infrastructure Protection System")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -259,6 +285,12 @@ def main(argv: list[str] | None = None) -> int:
     it.add_argument("--offline", action="store_true", help="use bundled fixtures instead of the network")
     it.add_argument("--sources")
     it.set_defaults(fn=cmd_intel)
+
+    ex = sub.add_parser("experience", help="show what AIPS has learned (persistent history)")
+    ex.add_argument("--db", required=True, help="path to experience.db (in [aips] data_dir by default)")
+    ex.add_argument("--signal")
+    ex.add_argument("--asset")
+    ex.set_defaults(fn=cmd_experience)
 
     sub.add_parser("version").set_defaults(fn=lambda _a: print(__version__) or 0)
 
