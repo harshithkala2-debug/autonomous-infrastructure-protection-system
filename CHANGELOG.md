@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.1
+
+* **License change:** AIPS is now proprietary, evaluation-only software (AIPS Evaluation License, all rights
+  reserved). Reading and unmodified test-environment evaluation are allowed; everything else needs the owner's
+  prior written permission. Added NOTICE.md and a *Permission request* issue template.
+* Strategy selection never picks a variant history shows to be bad while a viable one exists; evidence older than
+  90 days ages out.
+* Time-to-detect counts only findings at or after the fault.
+* CI matrix trimmed for private-repository Actions minutes.
+
 ## 1.1.0
 
 * **Layer mesh.** Any layer can dynamically call any other through registered capabilities, with discovery,

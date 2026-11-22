@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Evaluation terms
+    url: https://github.com/harshithkala2-debug/autonomous-infrastructure-protection-system/blob/main/NOTICE.md
+    about: Read what evaluators may and may not do before opening an issue.

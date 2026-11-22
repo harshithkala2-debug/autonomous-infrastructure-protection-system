@@ -1,5 +1,10 @@
 # AIPS: Autonomous Infrastructure Protection System
 
+> **Proprietary: shared for evaluation only.** You may read AIPS and run it unmodified in a test environment to
+> evaluate it. Copying, modifying, redistributing, reusing, publishing results, or using it to train AI models
+> requires the owner's **prior written permission**: see [NOTICE.md](NOTICE.md) and [LICENSE](LICENSE). To ask,
+> open a *Permission request* issue.
+
 AIPS is a hierarchical, multi-agent system that **detects, evaluates, decides, repairs, contains and recovers**
 problems in an organisation's technology infrastructure. Every change it makes passes through an explicit
 authorisation policy and is recorded in a tamper-evident audit ledger.
@@ -252,4 +257,6 @@ See [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE).
+**AIPS Evaluation License: all rights reserved.** Read and evaluate only; anything else requires the owner's
+prior written permission. See [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md). Versions 1.0.0–1.1.0 were briefly
+published under Apache 2.0; that grant covers only copies of those exact versions obtained at the time.

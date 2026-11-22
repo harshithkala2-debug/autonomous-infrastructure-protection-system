@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aips"
-version = "1.1.0"
+version = "1.1.1"
 description = "Autonomous Infrastructure Protection System: a hierarchical multi-agent platform for monitoring, evaluating, repairing and protecting technology infrastructure."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "Apache-2.0" }
+license = { text = "LicenseRef-AIPS-Evaluation (proprietary, evaluation only; see LICENSE)" }
 authors = [{ name = "AIPS contributors" }]
 keywords = ["sre", "security", "self-healing", "multi-agent", "incident-response", "backup", "iam"]
 classifiers = [
@@ -17,6 +17,8 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Operating System :: OS Independent",
+  "License :: Other/Proprietary License",
+  "Private :: Do Not Upload",
   "Topic :: System :: Monitoring",
   "Topic :: Security",
 ]

@@ -1,15 +1,18 @@
 # Contributing
 
-```bash
-pip install -e ".[dev,crypto]"
-ruff check aips tests
-python -m pytest
-aips demo
-```
+AIPS is proprietary software shared for evaluation only (see [LICENSE](LICENSE)). **External code contributions
+are not accepted without a prior written agreement with the owner.**
 
-* Keep the core free of third-party runtime dependencies.
-* Any new action kind needs an `ActionSpec` (risk, reversibility, minimum level), adapter support, and a test
-  showing the policy outcome.
-* Any new detector or playbook needs a scenario or unit test with explicit success criteria.
-* A behaviour change must keep `aips bench --seeds 1-10` at 100 % pass. If a scenario has to change, explain why
-  in the pull request.
+What evaluators can do:
+
+* open an issue for bugs, questions or evaluation feedback;
+* open a **Permission request** issue to ask for any use beyond evaluation (see [NOTICE.md](NOTICE.md));
+* report security issues privately (see [SECURITY.md](SECURITY.md)).
+
+To evaluate locally (run unmodified, in a test environment):
+
+```bash
+pip install -e .
+aips demo
+python -m pytest
+```

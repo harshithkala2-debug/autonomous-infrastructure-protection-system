@@ -5,14 +5,19 @@ on:
     branches: [main]
   pull_request:
 
+# Private repository: keep Actions minutes low (Windows counts x2 and macOS x10 against the free quota).
 jobs:
   test:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python: ["3.11", "3.12", "3.13"]
+        include:
+          - { os: ubuntu-latest, python: "3.11" }
+          - { os: ubuntu-latest, python: "3.12" }
+          - { os: ubuntu-latest, python: "3.13" }
+          - { os: windows-latest, python: "3.12" }
+          - { os: macos-latest, python: "3.12" }
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
