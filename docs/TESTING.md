@@ -47,6 +47,25 @@ aips bench --seeds 1-20 --json benchmark.json
 This reports per scenario the pass rate, mean time to detect (MTTD), mean and p95 time to resolve (MTTR),
 actions taken and false-positive incidents. CI runs it on every push and uploads `benchmark.json`.
 
+## Field test: live dry run on a real workstation
+
+AIPS was run in `dry_run` mode against a real Windows 10 workstation. It used the host telemetry source (disk,
+TCP probes, listening ports via `netstat`, and a `hosts`-file fingerprint), a backup of a project folder to a
+local copy layer and vault, and the **live** NVD (last 7 days) and CISA KEV feeds.
+
+| Observation | AIPS behaviour |
+|---|---|
+| System drive 98 % full | `disk_full` HIGH, detected on the first cycle, sent straight to Level 3. Plan: `storage.cleanup`, then `storage.expand` (not executed) |
+| A loopback listener (a sync client) missing from the declared allow-list | `unexpected_port` HIGH; plan: `network.block_port` (not executed). This was a **false positive from an incomplete inventory**, which is what a dry run is meant to surface before autonomy is enabled |
+| 9,460 live advisories | A KEV entry naming installed Git had no version data. AIPS fetched NVD's ranges for that CVE and recorded the installed version as **not affected** |
+| Audit | hash chain verified |
+
+**Bug found and fixed by this test.** The simulator never exercised it. When automation failed on a condition
+that persisted, the next cycle opened a *new* incident and started over (in dry run: 7 incidents in 5 minutes
+for 2 conditions, until the rate limiter stepped in). Now failed incidents stay with humans, and dry-run
+incidents are handed off once with their recorded plan. Regression test:
+`tests/test_system.py::test_dry_run_hands_off_once_and_never_respawns`.
+
 ## Methodology notes and limits
 
 * Time is simulated with a deterministic clock and a 30 s control cycle, so detection latency is quantised to

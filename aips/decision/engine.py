@@ -104,6 +104,7 @@ class DecisionEngine:
         self.runtime: dict[str, Runtime] = {}
         self.active_by_key: dict[str, str] = {}
         self.recent_resolved: dict[str, str] = {}
+        self.failed_by_key: dict[str, str] = {}      # failed incidents stay with humans until closed
         self.conflicts = ConflictResolver()
 
     # ------------------------------------------------------------------ helpers
@@ -174,6 +175,13 @@ class DecisionEngine:
                 self._event(inc, "severity_raised", f"now {inc.severity.name}")
             if level > inc.level and inc.level == Level.L2_EVALUATION:
                 self._escalate(inc, f"new evidence routed to Level 3: {reason}")
+            return inc
+
+        if key in self.failed_by_key:
+            # automation already gave up on this condition; do not start it again behind the humans' backs
+            inc = self.incidents[self.failed_by_key[key]]
+            if len(inc.findings) < 500:
+                inc.findings.extend(f.id for f in findings if f.id not in inc.findings)
             return inc
 
         if head.category in ROOT_CAUSE_CATEGORIES:
@@ -386,6 +394,11 @@ class DecisionEngine:
             return
         inc.verify_passes = 0
         failed = "; ".join(f"{r.check}: {r.detail}" for r in results if not r.ok)
+        effective = [a for a in inc.actions if not a.kind.startswith("notify.")]
+        if effective and all(a.dry_run for a in effective):
+            self._fail(inc, f"dry-run: remediation plan recorded but not executed; condition persists ({failed})",
+                       event="dry_run_handoff")
+            return
         if rt.verify_only:
             rt.verify_only = False
             inc.status = IncidentStatus.MITIGATING
@@ -427,11 +440,11 @@ class DecisionEngine:
         self._event(inc, "resolved", detail, {"duration_s": round(now - inc.opened_at, 1),
                                               "actions": len(inc.actions)})
 
-    def _fail(self, inc: Incident, why: str) -> None:
+    def _fail(self, inc: Incident, why: str, event: str = "failed") -> None:
         inc.status = IncidentStatus.FAILED
         rolled = 0
         for res in reversed(inc.actions):
-            if res.success and res.rollback and res.kind not in CONTAINMENT_KINDS \
+            if res.success and res.rollback and not res.dry_run and res.kind not in CONTAINMENT_KINDS \
                     and not res.kind.startswith(("traffic.", "notify.")):
                 rb = self.dispatcher.rollback(res)
                 rolled += 1
@@ -439,8 +452,10 @@ class DecisionEngine:
                         f"{res.kind} on {res.target}: {'ok' if rb.success else 'FAILED'}")
         for k in [k for k, v in self.active_by_key.items() if v == inc.id]:
             self.active_by_key.pop(k, None)
-        self._notify(inc, f"Automation could not resolve {inc.signal} on {inc.asset_id}: {why}", Severity.HIGH)
-        self._event(inc, "failed", why, {"rolled_back": rolled})
+            self.failed_by_key[k] = inc.id
+        lead = "Dry run" if event == "dry_run_handoff" else "Automation could not resolve"
+        self._notify(inc, f"{lead}: {inc.signal} on {inc.asset_id}: {why}", Severity.HIGH)
+        self._event(inc, event, why, {"rolled_back": rolled})
 
     def _notify(self, inc: Incident, message: str, sev: Severity | None = None) -> None:
         req = ActionRequest("notify.humans", inc.asset_id,
@@ -458,6 +473,8 @@ class DecisionEngine:
             self.memory.record(fp, det, true_positive=not false_positive)
         for k in [k for k, v in self.active_by_key.items() if v == inc.id]:
             self.active_by_key.pop(k, None)
+        for k in [k for k, v in self.failed_by_key.items() if v == inc.id]:
+            self.failed_by_key.pop(k, None)          # humans closed it: automation may act again
         if inc.asset_id in self.conflicts.containment:
             self.conflicts.release_containment(inc.asset_id)
         inc.log(inc.resolved_at, by, "closed_by_human", resolution)

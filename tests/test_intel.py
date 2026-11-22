@@ -93,6 +93,24 @@ class IntelTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_feed(b'<?xml version="1.0"?><!DOCTYPE x [<!ENTITY a "b">]><rss></rss>')
 
+    def test_kev_entry_enriched_from_nvd(self):
+        from aips.intel.collectors import enrich_from_nvd
+
+        class FakeNVD:
+            def by_cve(self, cve):
+                doc = json.loads(load_fixture("nvd_sample.json"))
+                doc["vulnerabilities"][0]["cve"]["id"] = cve
+                cfg = doc["vulnerabilities"][0]["cve"]["configurations"][0]["nodes"][0]["cpeMatch"][0]
+                cfg.update({"criteria": "cpe:2.3:a:redis:redis:*:*:*:*:*:*:*:*", "versionStartIncluding": "7.0",
+                            "versionEndExcluding": "7.2.2"})
+                return parse_nvd({"vulnerabilities": [doc["vulnerabilities"][0]]})
+
+        adv = self.advisories()
+        self.assertEqual(enrich_from_nvd(adv, FakeNVD(), inventory()), ["CVE-2099-10009"])
+        status = {(m.advisory, m.asset_id): m.status
+                  for m in RelevanceEngine(inventory()).assess_advisories(adv, 0).matches}
+        self.assertEqual(status[("CVE-2099-10009", "cache")], "not_affected")   # 7.2.4 >= fixed 7.2.2
+
     def test_fetcher_refuses_plain_http(self):
         with self.assertRaises(ValueError):
             HttpFetcher().fetch("http://example.invalid/feed")

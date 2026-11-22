@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.1
+
+Found by the first live dry run on a real workstation:
+
+* Fix: a FAILED incident no longer respawns as a new incident while its condition persists; it stays with humans
+  until closed.
+* Dry run: incidents are handed off once with their recorded plan (`dry_run_handoff`) instead of retrying
+  actions that were never executed.
+* Intel: `enrich_from_nvd` resolves version-less CISA KEV entries against NVD ranges for installed software.
+* Host telemetry: listening TCP ports via `netstat` (Windows/Linux/macOS), enabling the exposure bot on real hosts.
+* CLI: `aips run --ticks N --tick-seconds S --report FILE`.
+
 ## 1.0.0
 
 First complete release.

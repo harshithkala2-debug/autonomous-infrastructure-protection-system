@@ -118,6 +118,11 @@ Every playbook declares `checks` (`healthy`, `metric_below`, `config_matches`, `
   reversible actions are rolled back in reverse order (containment excepted) and humans are paged.
 * **Rate limits** stop runaway repair loops: after the 6th restart of a target within an hour, the next one
   needs approval.
+* **Failed stays failed:** once an incident has FAILED, later findings for the same condition attach to it.
+  Automation does not start again until a human closes the incident (`POST /incidents/{id}/close`).
+* **Dry run:** if every effective action in an incident was a dry run, a failed verification hands the incident
+  to humans straight away (`dry_run_handoff`). It does not "retry" actions that never ran. The recorded plan is
+  the output.
 
 ## 7. Handling conflicting findings
 
@@ -197,6 +202,9 @@ and an attacker who does not hold the key cannot alter, delete or reorder record
   * inside a range → *confirmed*
   * product matches but there is no range data → *possible* (LOW; a human must confirm the version)
   * outside every range → *not affected*
+* **Enrichment:** KEV entries carry no version data. When one names installed software, `enrich_from_nvd` fetches
+  that CVE's NVD record and uses its version ranges, so the result becomes *confirmed* or *not affected* instead
+  of *possible*.
 * **Severity:** taken from CVSS, raised one step if KEV-listed and one step if the asset is internet-facing.
 * **Postmortems:** reports are parsed from RSS/Atom (entity declarations are rejected and size is bounded) and
   matched against a keyword taxonomy of failure patterns. **A pattern produces a finding only when its environment

@@ -76,6 +76,19 @@ class DetectorTests(unittest.TestCase):
         f = CertificateExpiryDetector().detect(Observation(0), ctx(1000, inventory=i))
         self.assertEqual(f[0].severity, Severity.HIGH)
 
+    def test_netstat_parsing_all_platforms(self):
+        from aips.telemetry.sources import HostTelemetrySource as H
+        windows = ("  TCP    0.0.0.0:135            0.0.0.0:0              LISTENING\n"
+                   "  TCP    [::]:445               [::]:0                 LISTENING\n"
+                   "  TCP    10.0.0.2:5000          10.0.0.9:443           ESTABLISHED\n"
+                   "  UDP    0.0.0.0:500            *:*\n")
+        linux = ("tcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN\n"
+                 "tcp6       0      0 :::8080                 :::*                    LISTEN\n")
+        macos = "tcp4       0      0  *.5432                 *.*                    LISTEN\n"
+        self.assertEqual(H.parse_netstat(windows), [135, 445])
+        self.assertEqual(H.parse_netstat(linux), [22, 8080])
+        self.assertEqual(H.parse_netstat(macos), [5432])
+
     def test_anomaly_detector_and_level_shift(self):
         d = AnomalyDetector(warmup=10, level_shift_after=5)
         c = ctx()

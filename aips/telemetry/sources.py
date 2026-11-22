@@ -81,12 +81,38 @@ class HostTelemetrySource(TelemetrySource):
 
     def __init__(self, asset_id: str, disk_paths: list[str] | None = None,
                  probes: dict[str, dict[str, Any]] | None = None,
-                 config_files: dict[str, list[str]] | None = None, timeout: float = 2.0):
+                 config_files: dict[str, list[str]] | None = None, timeout: float = 2.0,
+                 listening_ports: bool = False):
         self.asset_id = asset_id
         self.disk_paths = disk_paths or [os.path.abspath(os.sep)]
         self.probes = probes or {}
         self.config_files = config_files or {}
         self.timeout = timeout
+        self.listening_ports = listening_ports
+
+    @staticmethod
+    def parse_netstat(text: str) -> list[int]:
+        """Extract listening TCP ports from ``netstat -an`` output (Windows, Linux and macOS formats)."""
+        ports: set[int] = set()
+        for line in text.splitlines():
+            parts = line.split()
+            if len(parts) < 4 or not parts[0].lower().startswith("tcp"):
+                continue
+            if not any(p.upper() in ("LISTEN", "LISTENING") for p in parts):
+                continue
+            local = parts[1] if parts[0].upper() == "TCP" and len(parts) == 4 else parts[3]
+            port = local.rsplit(":", 1)[-1].rsplit(".", 1)[-1]
+            if port.isdigit():
+                ports.add(int(port))
+        return sorted(ports)
+
+    def _ports(self) -> list[int] | None:
+        import subprocess
+        try:
+            cp = subprocess.run(["netstat", "-an"], capture_output=True, text=True, timeout=10, check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        return self.parse_netstat(cp.stdout) if cp.returncode == 0 else None
 
     def _probe(self, spec: dict[str, Any]) -> tuple[bool, float]:
         import time
@@ -132,6 +158,10 @@ class HostTelemetrySource(TelemetrySource):
                 except OSError:
                     snap[f] = None
             obs.configs[asset_id] = snap
+        if self.listening_ports:
+            ports = self._ports()
+            if ports is not None:
+                obs.open_ports[self.asset_id] = ports
         return obs
 
 

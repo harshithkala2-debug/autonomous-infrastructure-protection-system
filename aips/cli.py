@@ -114,17 +114,29 @@ def cmd_run(args) -> int:
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     if hasattr(signal, "SIGTERM"):
         signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    if args.tick_seconds:
+        tick_s = args.tick_seconds
+    limit = 1 if args.once else args.ticks
     while not stop.is_set():
         t0 = time.time()
         with lock:
             rep = aips.tick()
         logging.getLogger("aips").info("tick %d: %d findings, %d active incidents", rep.tick, rep.findings,
                                        rep.active_incidents)
-        if args.once:
+        if limit and rep.tick >= limit:
             break
         stop.wait(max(0.0, tick_s - (time.time() - t0)))
     if srv:
         srv.shutdown()
+    if args.report:
+        from .core.models import to_jsonable
+        report = {"status": aips.status(),
+                  "incidents": [to_jsonable(i) for i in aips.engine.incidents.values()],
+                  "pending_approvals": [{"id": a.id, "kind": a.request.kind, "target": a.request.target,
+                                         "reason": a.reason} for a in aips.approvals.pending()],
+                  "notifications": aips.notifier.outbox,
+                  "observation": to_jsonable(aips.last_obs)}
+        Path(args.report).write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
     return 0
 
 
@@ -165,7 +177,8 @@ def cmd_backup(args) -> int:
 def cmd_intel(args) -> int:
     from .config import build, load_config
     from .intel.collectors import (FeedCollector, HttpFetcher, KEVCollector, NVDCollector, OSVCollector,
-                                   load_fixture, merge_advisories, parse_feed, parse_kev, parse_nvd, parse_osv)
+                                   enrich_from_nvd, load_fixture, merge_advisories, parse_feed, parse_kev,
+                                   parse_nvd, parse_osv)
     cfg = load_config(args.config)
     aips = build(cfg)
     icfg = cfg.get("intel", {})
@@ -186,6 +199,9 @@ def cmd_intel(args) -> int:
         if "osv" in sources:
             groups.append(OSVCollector(fetcher).query_inventory(aips.inventory))
         adv = merge_advisories(*groups)
+        if "nvd" in sources:
+            enrich_from_nvd(adv, NVDCollector(fetcher, os.environ.get(icfg.get("nvd_api_key_env", ""), None)),
+                            aips.inventory)
         reports = FeedCollector(fetcher, icfg.get("feeds", [])).fetch() if "feeds" in sources else []
     summary = aips.run_intel(adv, reports)
     rep = aips.tick()
@@ -218,6 +234,9 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser("run", help="run AIPS against real infrastructure from a config file")
     r.add_argument("--config", required=True)
     r.add_argument("--once", action="store_true")
+    r.add_argument("--ticks", type=int, default=0, help="stop after N cycles (0 = run until interrupted)")
+    r.add_argument("--tick-seconds", type=float, default=0, help="override [aips] tick_seconds")
+    r.add_argument("--report", help="write a JSON report of incidents and decisions on exit")
     r.add_argument("--no-api", action="store_true")
     r.set_defaults(fn=cmd_run)
 

@@ -26,6 +26,22 @@ class ScenarioTests(unittest.TestCase):
                 with self.subTest(scenario=name, seed=seed):
                     self.assertTrue(run_scenario(name, seed=seed)[0].passed)
 
+    def test_dry_run_hands_off_once_and_never_respawns(self):
+        from aips.core.policy import PolicyConfig
+        from aips.orchestrator import AIPSConfig
+        env = SimEnvironment(seed=5, config=AIPSConfig(policy=PolicyConfig(dry_run=True)))
+        try:
+            env.sim.inject("crash", "cache", 3)
+            env.run(40)
+            incs = env.incidents("cache")
+            self.assertEqual(len(incs), 1, [i.id for i in incs])
+            self.assertEqual(incs[0].status.value, "failed")
+            self.assertTrue(any(t.event == "dry_run_handoff" for t in incs[0].timeline))
+            self.assertTrue(all(a.dry_run for a in incs[0].actions if not a.kind.startswith("notify.")))
+            self.assertEqual(env.sim.assets["cache"].restarts, 0)          # nothing executed
+        finally:
+            env.cleanup()
+
     def test_deterministic(self):
         a = run_scenario("traffic_surge", 11)[0]
         b = run_scenario("traffic_surge", 11)[0]

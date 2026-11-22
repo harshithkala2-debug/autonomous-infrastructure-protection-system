@@ -99,7 +99,7 @@ def build(cfg: dict[str, Any]) -> AIPS:
     if "host" in tel:
         h = tel["host"]
         sources.append(HostTelemetrySource(h.get("asset_id", "localhost"), h.get("disk_paths"), h.get("probes"),
-                                           h.get("config_files")))
+                                           h.get("config_files"), listening_ports=bool(h.get("listening_ports"))))
     for j in tel.get("jsonl", []):
         sources.append(JsonlTelemetrySource(_p(base, j)))
 

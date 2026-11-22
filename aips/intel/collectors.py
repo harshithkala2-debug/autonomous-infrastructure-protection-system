@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .. import __version__
-from ..telemetry.inventory import Inventory
+from ..telemetry.inventory import Inventory, normalize_product
 from .models import Advisory, AffectedProduct, IncidentReport
 from .versions import AffectedRange
 
@@ -315,6 +315,37 @@ def merge_advisories(*groups: Iterable[Advisory]) -> list[Advisory]:
                 by_id[i] = existing
     uniq: dict[int, Advisory] = {id(a): a for a in by_id.values()}
     return list(uniq.values())
+
+
+def enrich_from_nvd(advisories: list[Advisory], nvd: "NVDCollector", inventory: Inventory,
+                    max_lookups: int = 25) -> list[str]:
+    """Fetch NVD version ranges for advisories that lack them (e.g. CISA KEV entries) *and* name software
+    that is actually installed. This turns "possible exposure" into confirmed / not-affected when NVD has
+    the data. Returns the advisory ids that were enriched."""
+    enriched: list[str] = []
+    for adv in advisories:
+        if len(enriched) >= max_lookups:
+            break
+        if any(p.ranges or p.versions for p in adv.products):
+            continue
+        if not any(inventory.find_software(p.product) for p in adv.products if p.product):
+            continue
+        cve = next((i for i in sorted(adv.all_ids) if i.startswith("CVE-")), None)
+        if not cve:
+            continue
+        try:
+            found = nvd.by_cve(cve)
+        except (OSError, ValueError):
+            continue
+        for rec in found:
+            ranged = [p for p in rec.products if p.ranges or p.versions]
+            if ranged:
+                adv.products = ranged + [p for p in adv.products if not (p.ranges or p.versions)
+                                         and not any(normalize_product(p.product) == normalize_product(r.product)
+                                                     for r in ranged)]
+                adv.cvss = adv.cvss if adv.cvss is not None else rec.cvss
+                enriched.append(adv.id)
+    return enriched
 
 
 def load_fixture(name: str) -> bytes:

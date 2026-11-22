@@ -21,7 +21,8 @@ The core has **zero runtime dependencies** (Python â‰¥ 3.11 standard library
 optional and uses `cryptography`.
 
 > **Status: v1.0.0.** The complete system is implemented and tested. All 14 end-to-end scenarios pass on every
-> seed in the bundled simulator, and the 60-test suite passes. It has **not yet been validated on production
+> seed in the bundled simulator, the 63-test suite passes, and AIPS has completed a live dry run on a real
+> workstation. It has **not yet been validated on production
 > infrastructure**. See [Limitations](#limitations). The original concept is in
 > [`autonomous_infrastructure_protection_system_plan.md`](autonomous_infrastructure_protection_system_plan.md).
 
@@ -225,9 +226,11 @@ tests/          unit, integration, scenario and API tests
 
 These are stated plainly so that engineers can evaluate the system fairly:
 
-* **Evaluation is simulation-based.** The simulator models real failure dynamics (saturation, cascading
+* **Evaluation is mostly simulation-based.** The simulator models real failure dynamics (saturation, cascading
   dependency errors, disk growth) and corrupts real files on disk for the ransomware scenario. It is still a model.
-  AIPS has not been benchmarked on production traffic or compared head-to-head with commercial tools.
+  One live dry run on a single workstation with live NVD/KEV feeds found real issues and a real bug, now fixed
+  (see [`docs/TESTING.md`](docs/TESTING.md#field-test-live-dry-run-on-a-real-workstation)). AIPS has not been
+  run on production servers or compared head-to-head with commercial tools.
 * **Adapters are the integration boundary.** Only a generic command adapter, a recording adapter and the simulator
   adapter are included. Kubernetes, cloud provider and firewall integrations are configured through command
   templates; native SDK adapters are future work.
