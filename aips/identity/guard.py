@@ -168,6 +168,10 @@ class GuardConfig:
     failure_window_s: float = 300.0
     anomaly_accumulation: int = 3
     anomaly_window_s: float = 900.0
+    # cloud audit logs contain principals nobody registered; "learn" registers them on first sight with an
+    # unrestricted boundary so they are judged by behaviour (profile, failures, sensitive actions) instead of
+    # being treated as violations. Tighten real boundaries in configuration over time.
+    auto_register_unknown: bool = False
 
 
 class IdentityGuard:
@@ -216,6 +220,11 @@ class IdentityGuard:
             return AccessDecision(False, 1.0, ["session was revoked"])
 
         boundary = self.boundaries.get(iid)
+        if boundary is None and cfg.auto_register_unknown:
+            self.register(Identity(iid, "service" if iid.endswith(".gserviceaccount.com") else "human"),
+                          PermissionBoundary(allow=[PermissionRule("*", "*")]))
+            boundary = self.boundaries[iid]
+            self.stats["auto_registered"] += 1
         hour = int((ev.ts // 3600) % 24)
         recent = self._recent[iid]
         recent.append(ev.ts)

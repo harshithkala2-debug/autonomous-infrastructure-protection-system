@@ -8,6 +8,8 @@
     aips backup {snapshot,replicate,verify,restore,drill,prune,status} --config aips.toml
     aips intel assess --config aips.toml [--offline] [--sources nvd,kev,osv,feeds]
     aips experience --db aips-data/experience.db [--signal overload] [--asset api]
+    aips gcp {check,discover} --project PROJECT [--out inventory.toml]
+    aips gcp baseline --config aips-gcp.toml --approved-by NAME
     aips version
 """
 
@@ -213,6 +215,60 @@ def cmd_intel(args) -> int:
     return 0
 
 
+def cmd_gcp(args) -> int:
+    from .integrations.gcp import GcpClient, GcpDiscovery, GcpError, default_token_provider
+    from .integrations.gcp.client import IAM, LOGGING, MONITORING, SCC
+    if args.verb == "baseline":
+        from .config import build, load_config
+        aips = build(load_config(args.config))
+        obs = aips.collect(aips.clock.now())
+        aips.last_obs = obs
+        for asset in sorted(obs.configs):
+            print(json.dumps(aips.capture_baseline(asset, args.approved_by)))
+        return 0
+    if not args.project:
+        print("--project is required", file=sys.stderr)
+        return 2
+    tokens = default_token_provider()
+    c = GcpClient(args.project, tokens)
+    if args.verb == "check":
+        try:
+            tokens.token()
+            print(f"OK    credentials via {tokens.used}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"FAIL  credentials: {exc}")
+            return 1
+        probes = [
+            ("Compute Engine (VMs)", lambda: c.get(f"{c.compute}/aggregated/instances", maxResults=1)),
+            ("Compute Engine (firewalls)", lambda: c.get(f"{c.compute}/global/firewalls", maxResults=1)),
+            ("Cloud Monitoring", lambda: c.get(f"{MONITORING}/projects/{c.project}/metricDescriptors", pageSize=1)),
+            ("Cloud Logging (audit logs)", lambda: c.post(f"{LOGGING}/entries:list",
+                                                          {"resourceNames": [f"projects/{c.project}"], "pageSize": 1})),
+            ("IAM (service accounts)", lambda: c.get(f"{IAM}/projects/{c.project}/serviceAccounts", pageSize=1)),
+            ("Security Command Center", lambda: c.get(
+                f"{SCC}/projects/{c.project}/sources/-/locations/global/findings", pageSize=1)),
+        ]
+        ok = True
+        for name, fn in probes:
+            try:
+                fn()
+                print(f"OK    {name}")
+            except GcpError as exc:
+                ok = ok and name == "Security Command Center"    # SCC is optional
+                print(f"{'WARN' if name == 'Security Command Center' else 'FAIL'}  {name}: {exc}")
+        return 0 if ok else 1
+    topo = GcpDiscovery(c).topology()
+    inv = GcpDiscovery.inventory(topo)
+    print(f"{len(topo.instances)} VM(s), {len(topo.migs)} MIG(s), {len(topo.firewalls)} firewall rule(s), "
+          f"{len(topo.service_accounts)} service account(s)")
+    for a in inv:
+        print(f"  {a.kind:8s} {a.id:32s} exposed ports: {a.allowed_ports or '-'}")
+    if args.out:
+        Path(args.out).write_text(GcpDiscovery.to_toml(inv), encoding="utf-8")
+        print(f"inventory written to {args.out}")
+    return 0
+
+
 def cmd_experience(args) -> int:
     from .experience.store import ExperienceStore
     if not Path(args.db).exists():
@@ -285,6 +341,14 @@ def main(argv: list[str] | None = None) -> int:
     it.add_argument("--offline", action="store_true", help="use bundled fixtures instead of the network")
     it.add_argument("--sources")
     it.set_defaults(fn=cmd_intel)
+
+    g = sub.add_parser("gcp", help="Google Cloud: check access, discover a project, record firewall baselines")
+    g.add_argument("verb", choices=["check", "discover", "baseline"])
+    g.add_argument("--project")
+    g.add_argument("--out", help="discover: write the inventory TOML here")
+    g.add_argument("--config", help="baseline: AIPS config with a [gcp] section")
+    g.add_argument("--approved-by", default="operator", help="baseline: who approved this known-good state")
+    g.set_defaults(fn=cmd_gcp)
 
     ex = sub.add_parser("experience", help="show what AIPS has learned (persistent history)")
     ex.add_argument("--db", required=True, help="path to experience.db (in [aips] data_dir by default)")

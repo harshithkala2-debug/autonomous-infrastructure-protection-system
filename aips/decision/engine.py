@@ -168,6 +168,8 @@ class DecisionEngine:
         cands = rt.candidates
         if not cands:
             return None
+        if len(cands) == 1 and not exclude:
+            return Choice(cands[0], False, "single")
         if self.selector is None:
             pool = [c for c in cands if c.name not in (exclude or [])]
             return Choice(pool[0], False, "fixed") if pool else None

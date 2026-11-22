@@ -221,13 +221,20 @@ class AIPS:
         def identity(req: ActionRequest):
             if req.kind == "identity.freeze":
                 self.guard.freeze(req.target, req.rationale, now(), by=req.requested_by.name)
-                return True, f"{req.target} frozen", {"identity": req.target}
+                detail = f"{req.target} frozen in AIPS"
+                hook = getattr(self.adapter, "freeze_identity", None)
+                if hook:                                   # enforce on the platform too (e.g. disable a GCP SA)
+                    ok, msg = hook(req.target, True)
+                    detail += f"; platform: {msg}"
+                return True, detail, {"identity": req.target}
             if req.kind == "identity.revoke_sessions":
                 n = self.guard.revoke_sessions(req.target)
                 return True, f"{n} session(s) revoked", None
             if req.kind == "identity.unfreeze":
                 ok = self.guard.unfreeze(req.target)
-                return ok, "unfrozen" if ok else "identity was not frozen", None
+                hook = getattr(self.adapter, "freeze_identity", None)
+                extra = f"; platform: {hook(req.target, False)[1]}" if (ok and hook) else ""
+                return ok, ("unfrozen" if ok else "identity was not frozen") + extra, None
             return False, f"unknown identity action {req.kind}", None
 
         def backup(req: ActionRequest):
@@ -249,6 +256,9 @@ class AIPS:
 
         def identity_rollback(res):
             if res.kind == "identity.freeze":
+                hook = getattr(self.adapter, "freeze_identity", None)
+                if hook:
+                    hook(res.target, False)
                 return self.guard.unfreeze(res.target), "unfrozen by rollback"
             return False, "no rollback"
 
@@ -311,6 +321,14 @@ class AIPS:
                 log.error("backup cycle failed: %s", exc)
         obs = self.collect(now)
         self.last_obs = obs
+        # access events from telemetry (e.g. cloud audit logs) go to the identity guard
+        for ev in [e for e in obs.events if e.get("type") == "access"]:
+            try:
+                self.ingest_access(AccessEvent(ev["identity"], ev["action"], ev.get("resource", ""),
+                                               float(ev.get("ts", now)), ev.get("source_ip"),
+                                               bool(ev.get("success", True)), ev.get("session")))
+            except (KeyError, TypeError, ValueError):
+                self.counters["bad_access_events"] += 1
         findings = self.fleet.run(obs, self.inventory, self.baselines, now)
         if self.backup:
             findings += self.backup.drain_findings()

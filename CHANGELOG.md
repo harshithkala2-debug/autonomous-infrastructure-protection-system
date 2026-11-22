@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.2.0
+
+* **Google Cloud integration** (`aips/integrations/gcp`, REST APIs, no Google SDK):
+  * credential chain: token, service-account key, gcloud, metadata server;
+  * client with retries, pagination and operation polling;
+  * discovery of VMs, MIGs, firewall rules and service accounts into an inventory;
+  * telemetry from Cloud Monitoring, VM/MIG state, firewall-rule drift, internet exposure (computed with
+    Google's priority and deny-wins semantics), Cloud Audit Logs fed to the identity guard, and Security Command
+    Center findings;
+  * actions with rollbacks: VM reset, MIG restart/resize, deny rules, quarantine tag, firewall restore that
+    disables (never deletes) unapproved rules, and service-account disable/enable as the platform side of an
+    identity freeze.
+* In-process Google Cloud API emulator and 15 tests, including end-to-end runs: a rogue firewall rule is
+  contained and reverted, a crashed MIG is restarted, and a misused service account is disabled in IAM.
+* `aips gcp check | discover | baseline`, `examples/aips-gcp.toml` and the `docs/GCP.md` walkthrough.
+* Access events from telemetry now reach the identity guard. The guard can register principals it has never
+  seen and judge them by behaviour (`learn_identities`).
+
 ## 1.1.1
 
 * **License change:** AIPS is now proprietary, evaluation-only software (AIPS Evaluation License, all rights

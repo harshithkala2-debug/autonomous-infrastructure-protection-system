@@ -23,14 +23,16 @@ It puts the functions below into one coordinated control loop:
 | **Safety & governance** | Risk-tiered policy, two-person rule for high-risk actions, kill switch, dry-run mode, rate limits against repair loops, protected targets, HMAC hash-chained audit log |
 | **Layer mesh: any layer can call any other** | Layers register capabilities and call each other at runtime. Level 2 asks Level 1 for a fresh re-scan when unsure; Level 3 re-checks with Level 1 before risky or approved actions; fleets escalate straight to Level 3. Loops and runaway call depth are refused. |
 | **Persistent experience** | A SQLite history of every episode (strategy, actions, outcome, reward, timing, relapses) and of each detector's accuracy. It survives restarts and drives chronic-issue escalation. |
+| **Google Cloud integration** | Discovers a project, then watches Cloud Monitoring, firewall rules, internet exposure, Cloud Audit Logs and Security Command Center. Acts through Compute Engine and IAM: VM reset, MIG restart and resize, deny rules, quarantine, firewall restore, service-account disable. Each action has a rollback, and the whole integration is tested end to end against an API emulator. See [docs/GCP.md](docs/GCP.md). |
 | **Automatic strategy exploration** | Several alternative playbooks per problem. AIPS starts with the reviewed default, tries each alternative once, then uses Thompson sampling to favour what works, and switches strategy when a fix fails or relapses. It never experiments with containment or on critical assets. |
 
 The core has **zero runtime dependencies** (Python ≥ 3.11 standard library only). AES-GCM backup encryption is
 optional and uses `cryptography`.
 
-> **Status: v1.1.0.** The complete system is implemented and tested. All 17 end-to-end scenarios pass on every
-> seed in the bundled simulator, the 72-test suite passes, and AIPS has completed a live dry run on a real
-> workstation. It has **not yet been validated on production
+> **Status: v1.2.0.** The complete system is implemented and tested. All 17 end-to-end scenarios pass on every
+> seed in the bundled simulator, the 87-test suite passes, AIPS has completed a live dry run on a real
+> workstation, and the Google Cloud integration passes end-to-end tests against an API emulator. It has not yet
+> been run against a live Google Cloud project. It has **not yet been validated on production
 > infrastructure**. See [Limitations](#limitations). The original concept is in
 > [`autonomous_infrastructure_protection_system_plan.md`](autonomous_infrastructure_protection_system_plan.md).
 
@@ -226,6 +228,7 @@ aips/
   intel/        collectors (NVD/KEV/OSV/feeds), version ranges, relevance, failure patterns
   sim/          simulator, fault injection, scenarios, benchmark
   api/          HTTP control plane
+  integrations/gcp/  Google Cloud: auth, client, discovery, telemetry, actions, API emulator
   orchestrator.py  wiring + control loop
   config.py        TOML -> running system
   cli.py           `aips` command

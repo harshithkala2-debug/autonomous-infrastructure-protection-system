@@ -1,0 +1,44 @@
+# AIPS on Google Cloud. See docs/GCP.md for the full walkthrough.
+#
+#   aips gcp check --project YOUR_PROJECT
+#   aips gcp baseline --config examples/aips-gcp.toml --approved-by you
+#   aips run --config examples/aips-gcp.toml
+
+[aips]
+data_dir = "runtime/aips-gcp"
+tick_seconds = 30
+dry_run = true                       # ALWAYS start in dry run: decisions are recorded, nothing is changed
+
+[gcp]
+project = "your-project-id"
+# no [inventory] path: the inventory is discovered from the project at start-up
+uptime_checks = { }                  # e.g. { "web-check-abc123" = "web" }  (uptime check id -> asset)
+audit_logs = true                    # Cloud Audit Logs -> identity guard
+security_command_center = false      # needs SCC to be enabled on the project
+learn_identities = true              # principals seen in audit logs are judged by behaviour until you
+                                     # give them explicit boundaries below
+criticality = { web = 4 }            # asset id -> 1..5
+
+[adapter]
+type = "gcp"                         # acts through the Compute Engine / IAM APIs (only when dry_run = false)
+
+[api]
+enabled = true
+host = "127.0.0.1"
+port = 8780
+token_env = "AIPS_API_TOKEN"
+
+[policy]
+max_autonomous_risk = "MEDIUM"
+protected_targets = ["break-glass-*", "*@your-domain.com"]
+
+[experience]
+path = "runtime/aips-gcp/experience.db"
+
+# Tighten what each service account may do (actions are normalised Cloud Audit Log method names).
+[[identities]]
+id = "app-sa@your-project-id.iam.gserviceaccount.com"
+kind = "service"
+[identities.boundary]
+allow = [{ action = "storage.objects.*", resource = "projects/_/buckets/your-app-bucket/*" }]
+source_networks = ["10.0.0.0/8"]

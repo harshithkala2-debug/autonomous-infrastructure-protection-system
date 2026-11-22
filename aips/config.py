@@ -20,7 +20,7 @@ from .core.policy import PolicyConfig
 from .evaluation.escalation import EscalationConfig
 from .evaluation.evaluator import EvaluatorConfig
 from .experience.store import ExperienceStore
-from .identity.guard import Identity, PermissionBoundary
+from .identity.guard import GuardConfig, Identity, IdentityGuard, PermissionBoundary
 from .monitoring.detectors import DEFAULT_THRESHOLDS, ThresholdRule
 from .orchestrator import AIPS, AIPSConfig
 from .repair.baseline import DesiredStateStore
@@ -70,10 +70,22 @@ def build(cfg: dict[str, Any]) -> AIPS:
     data_dir = _p(base, core.get("data_dir", "aips-data"))
     ensure_dir_private(data_dir)
 
+    gcp_cfg = cfg.get("gcp")
+    gcp_client = gcp_topology = None
+    if gcp_cfg:
+        from .integrations.gcp import GcpClient, GcpDiscovery, default_token_provider
+        if not gcp_cfg.get("project"):
+            raise ConfigError("[gcp] project is required")
+        gcp_client = GcpClient(gcp_cfg["project"], default_token_provider())
+
     inv_path = cfg.get("inventory", {}).get("path")
-    if not inv_path:
-        raise ConfigError("[inventory] path is required")
-    inventory = Inventory.load(_p(base, inv_path))
+    if inv_path:
+        inventory = Inventory.load(_p(base, inv_path))
+    elif gcp_client is not None:
+        gcp_topology = GcpDiscovery(gcp_client).topology()
+        inventory = GcpDiscovery.inventory(gcp_topology, gcp_cfg.get("criticality", {}))
+    else:
+        raise ConfigError("[inventory] path is required (or a [gcp] section for automatic discovery)")
 
     thresholds = list(DEFAULT_THRESHOLDS)
     if cfg.get("thresholds"):
@@ -89,9 +101,15 @@ def build(cfg: dict[str, Any]) -> AIPS:
                       strategy_exploration=bool(strat.get("exploration", True)),
                       strategy_seed=int(strat.get("seed", 0)))
 
+    baselines = DesiredStateStore(data_dir / "baselines.json")
     acfg_adapter = cfg.get("adapter", {"type": "recording"})
     if acfg_adapter.get("type") == "command":
         adapter = CommandAdapter.from_config(acfg_adapter.get("commands", {}))
+    elif acfg_adapter.get("type") == "gcp":
+        if gcp_client is None:
+            raise ConfigError("adapter type 'gcp' needs a [gcp] section")
+        from .integrations.gcp import GcpAdapter
+        adapter = GcpAdapter(gcp_client, gcp_topology, baselines)
     elif acfg_adapter.get("type", "recording") == "recording":
         adapter = RecordingAdapter()
     else:
@@ -105,6 +123,14 @@ def build(cfg: dict[str, Any]) -> AIPS:
                                            h.get("config_files"), listening_ports=bool(h.get("listening_ports"))))
     for j in tel.get("jsonl", []):
         sources.append(JsonlTelemetrySource(_p(base, j)))
+    if gcp_client is not None and gcp_cfg.get("telemetry", True):
+        from .integrations.gcp import GcpTelemetrySource
+        src = GcpTelemetrySource(gcp_client, dict(gcp_cfg.get("uptime_checks", {})),
+                                 float(gcp_cfg.get("window_s", 600)), audit_logs=bool(gcp_cfg.get("audit_logs", True)),
+                                 scc=bool(gcp_cfg.get("security_command_center", False)),
+                                 monitoring=bool(gcp_cfg.get("monitoring", True)))
+        src.topology = gcp_topology
+        sources.append(src)
 
     audit_cfg = cfg.get("audit", {})
     audit = AuditLedger(data_dir / "audit.jsonl", key=_secret(audit_cfg, "hmac_key"))
@@ -129,9 +155,9 @@ def build(cfg: dict[str, Any]) -> AIPS:
     notifier = Notifier(cfg.get("notify", {}).get("webhooks", []))
     exp_path = cfg.get("experience", {}).get("path")
     experience = ExperienceStore(_p(base, exp_path) if exp_path else data_dir / "experience.db")
-    aips = AIPS(inventory, adapter, sources, config=acfg, audit=audit,
-                baselines=DesiredStateStore(data_dir / "baselines.json"),
-                backup=backup, notifier=notifier, experience=experience)
+    guard = IdentityGuard(GuardConfig(auto_register_unknown=bool((gcp_cfg or {}).get("learn_identities", False))))
+    aips = AIPS(inventory, adapter, sources, config=acfg, audit=audit, baselines=baselines,
+                backup=backup, notifier=notifier, experience=experience, guard=guard)
 
     for ident in cfg.get("identities", []):
         aips.guard.register(Identity(ident["id"], ident.get("kind", "human"), ident.get("owner", ""),
