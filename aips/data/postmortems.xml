@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SYNTHETIC TEST FIXTURE: fictional incident reports in RSS 2.0 format, written to exercise pattern extraction. -->
+<rss version="2.0">
+  <channel>
+    <title>Example Reliability Engineering Blog (fixture)</title>
+    <link>https://example.invalid/blog</link>
+    <description>Fictional postmortems</description>
+    <item>
+      <title>Postmortem: two-hour outage caused by an expired TLS certificate</title>
+      <link>https://example.invalid/blog/expired-cert</link>
+      <pubDate>Mon, 05 Jan 2099 10:00:00 GMT</pubDate>
+      <description>An intermediate certificate expired on our edge fleet. Certificate rotation had been manual.</description>
+    </item>
+    <item>
+      <title>How a retry storm turned a small database blip into a cascading failure</title>
+      <link>https://example.invalid/blog/retry-storm</link>
+      <pubDate>Tue, 06 Jan 2099 10:00:00 GMT</pubDate>
+      <description>Clients retried without backoff, overloading the primary database. The dependency became a single point of failure; failover did not complete.</description>
+    </item>
+    <item>
+      <title>Ransomware recovery: our backups were encrypted too</title>
+      <link>https://example.invalid/blog/backups</link>
+      <pubDate>Wed, 07 Jan 2099 10:00:00 GMT</pubDate>
+      <description>Backups shared credentials with production; the restore failed and we suffered data loss.</description>
+    </item>
+  </channel>
+</rss>

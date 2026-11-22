@@ -1,0 +1,122 @@
+# AIPS configuration example.
+#
+#   export AIPS_API_TOKEN=$(python -c "import secrets;print(secrets.token_hex(24))")
+#   export AIPS_AUDIT_KEY=$(python -c "import secrets;print(secrets.token_hex(32))")
+#   export AIPS_BACKUP_HMAC=$(python -c "import secrets;print(secrets.token_hex(32))")
+#   aips run --config examples/aips.toml
+#
+# Secrets are never written in this file: each *_env key names the environment variable holding it.
+
+[aips]
+data_dir = "runtime/aips-data"     # audit ledger, baselines, outcome memory, intel cache
+tick_seconds = 30
+dry_run = true                     # start in dry-run: decisions are made and audited, nothing is executed
+
+[inventory]
+path = "inventory.toml"
+
+[api]
+enabled = true
+host = "127.0.0.1"
+port = 8780
+token_env = "AIPS_API_TOKEN"
+
+[audit]
+hmac_key_env = "AIPS_AUDIT_KEY"
+
+[policy]
+max_autonomous_risk = "MEDIUM"     # LOW | MEDIUM | HIGH - above this every action needs approval
+critical_asset_threshold = 5       # assets at/above this criticality need approval for MEDIUM-risk actions
+protected_targets = ["break-glass-*", "identity:break-glass-*"]
+global_actions_per_hour = 200
+two_person_rule_for_high = true
+
+[escalation]
+direct_severity = "CRITICAL"
+high_confidence_bypass = 0.9
+
+[evaluator]
+dismiss_below = 0.30
+handle_min = 0.50
+escalate_min = 0.60
+case_ttl_s = 180
+
+[valves]
+ramp_step = 0.25
+backoff_factor = 0.5
+min_autonomous_position = 0.1
+default_capacity_rps = 1000
+
+[telemetry.host]
+asset_id = "localhost"
+disk_paths = ["/"]
+[telemetry.host.probes]
+web = { type = "http", url = "http://127.0.0.1:8080/healthz", expect = 200 }
+db = { type = "tcp", host = "127.0.0.1", port = 5432 }
+[telemetry.host.config_files]
+web = ["/etc/nginx/nginx.conf"]
+
+# Optional: ingest observations written by other agents (one JSON object per line).
+# [telemetry]
+# jsonl = ["runtime/observations.jsonl"]
+
+[adapter]
+type = "command"                    # "command" executes allow-listed templates; "recording" only records
+[adapter.commands."service.restart"]
+argv = ["systemctl", "restart", "{target}"]
+[adapter.commands."service.scale_out"]
+argv = ["kubectl", "scale", "deployment/{target}", "--replicas={replicas}"]
+[adapter.commands."config.restore_baseline"]
+argv = ["git", "-C", "/etc/aips-configs", "checkout", "known-good", "--", "{target}"]
+[adapter.commands."network.block_port"]
+argv = ["ufw", "deny", "{port}"]
+rollback_argv = ["ufw", "delete", "deny", "{port}"]
+[adapter.commands."host.isolate"]
+argv = ["/usr/local/sbin/aips-isolate", "{target}"]
+rollback_argv = ["/usr/local/sbin/aips-rejoin", "{target}"]
+
+[backup]
+main = "runtime/main-data"
+copy = "runtime/backup-copy"
+hmac_key_env = "AIPS_BACKUP_HMAC"
+# encryption_key_env = "AIPS_BACKUP_KEY"   # 64 hex chars; requires `pip install aips[crypto]`
+replication_ip = "10.0.0.5"
+asset_id = "main-data"
+exclude = ["tmp/"]
+[backup.policy]
+interval_s = 3600
+keep_last = 24
+keep_daily = 7
+keep_weekly = 4
+keep_monthly = 6
+[backup.vault]
+root = "runtime/vault"
+allowed_networks = ["10.0.0.0/8"]   # the organisation's own networks; kept private, never logged
+retention_lock_days = 30
+ip_salt_env = "AIPS_VAULT_SALT"
+
+[notify]
+webhooks = []                       # https:// endpoints (Slack/Teams/PagerDuty bridges)
+
+[intel]
+nvd_days = 7
+nvd_api_key_env = "NVD_API_KEY"
+feeds = []                          # RSS/Atom URLs of status pages, postmortem and engineering blogs
+
+[[identities]]
+id = "svc-reports"
+kind = "service"
+owner = "analytics-team"
+[identities.boundary]
+allow = [{ action = "storage.read", resource = "bucket/reports/*" }, { action = "db.query", resource = "db/analytics/*" }]
+source_networks = ["10.0.0.0/8"]
+max_rate_per_min = 120
+
+[[identities]]
+id = "alice"
+kind = "human"
+[identities.boundary]
+allow = [{ action = "storage.*", resource = "bucket/team/*" }, { action = "ticket.*", resource = "tickets/*" }]
+deny = [{ action = "iam.*", resource = "*" }]
+source_networks = ["10.0.0.0/8"]
+allowed_hours_utc = [6, 21]

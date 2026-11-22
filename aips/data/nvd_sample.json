@@ -1,0 +1,48 @@
+{
+  "_comment": "SYNTHETIC TEST FIXTURE in NVD CVE API 2.0 format. CVE-2099-* identifiers and the products 'acme gateway' / 'examplelib' are fictional and exist only to exercise the parser and relevance engine offline.",
+  "resultsPerPage": 3,
+  "startIndex": 0,
+  "totalResults": 3,
+  "format": "NVD_CVE",
+  "version": "2.0",
+  "vulnerabilities": [
+    {
+      "cve": {
+        "id": "CVE-2099-10001",
+        "published": "2099-01-10T12:00:00.000",
+        "descriptions": [{"lang": "en", "value": "Path traversal in ACME Gateway request router allows unauthenticated remote attackers to read arbitrary files (fictional test record)."}],
+        "metrics": {"cvssMetricV31": [{"cvssData": {"baseScore": 9.8, "baseSeverity": "CRITICAL"}}]},
+        "weaknesses": [{"description": [{"lang": "en", "value": "CWE-22"}]}],
+        "configurations": [{"nodes": [{"operator": "OR", "cpeMatch": [
+          {"vulnerable": true, "criteria": "cpe:2.3:a:acme:acme-gateway:*:*:*:*:*:*:*:*", "versionStartIncluding": "3.0.0", "versionEndExcluding": "3.2.4"}
+        ]}]}],
+        "references": [{"url": "https://example.invalid/advisories/acme-2099-10001"}]
+      }
+    },
+    {
+      "cve": {
+        "id": "CVE-2099-10002",
+        "published": "2099-01-11T12:00:00.000",
+        "descriptions": [{"lang": "en", "value": "Privilege escalation in PostgreSQL 16 extension loader (fictional test record)."}],
+        "metrics": {"cvssMetricV31": [{"cvssData": {"baseScore": 8.1, "baseSeverity": "HIGH"}}]},
+        "weaknesses": [{"description": [{"lang": "en", "value": "CWE-269"}]}],
+        "configurations": [{"nodes": [{"operator": "OR", "cpeMatch": [
+          {"vulnerable": true, "criteria": "cpe:2.3:a:postgresql:postgresql:*:*:*:*:*:*:*:*", "versionStartIncluding": "16.0", "versionEndExcluding": "16.4"}
+        ]}]}],
+        "references": [{"url": "https://example.invalid/advisories/pg-2099-10002"}]
+      }
+    },
+    {
+      "cve": {
+        "id": "CVE-2099-10003",
+        "published": "2099-01-12T12:00:00.000",
+        "descriptions": [{"lang": "en", "value": "Denial of service in an unrelated product not present in the inventory (fictional test record)."}],
+        "metrics": {"cvssMetricV31": [{"cvssData": {"baseScore": 7.5, "baseSeverity": "HIGH"}}]},
+        "configurations": [{"nodes": [{"operator": "OR", "cpeMatch": [
+          {"vulnerable": true, "criteria": "cpe:2.3:a:otherco:widget-server:2.1:*:*:*:*:*:*:*"}
+        ]}]}],
+        "references": []
+      }
+    }
+  ]
+}

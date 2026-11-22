@@ -1,0 +1,32 @@
+{
+  "_comment": "SYNTHETIC TEST FIXTURE in CISA KEV catalogue format. All entries are fictional.",
+  "title": "Known Exploited Vulnerabilities Catalog (fixture)",
+  "catalogVersion": "2099.01.15",
+  "count": 2,
+  "vulnerabilities": [
+    {
+      "cveID": "CVE-2099-10001",
+      "vendorProject": "ACME",
+      "product": "acme-gateway",
+      "vulnerabilityName": "ACME Gateway Path Traversal Vulnerability",
+      "dateAdded": "2099-01-14",
+      "shortDescription": "ACME Gateway contains a path traversal vulnerability (fictional).",
+      "requiredAction": "Apply mitigations per vendor instructions or discontinue use of the product if mitigations are unavailable.",
+      "dueDate": "2099-02-04",
+      "knownRansomwareCampaignUse": "Known",
+      "cwes": ["CWE-22"]
+    },
+    {
+      "cveID": "CVE-2099-10009",
+      "vendorProject": "Redis",
+      "product": "redis",
+      "vulnerabilityName": "Redis Lua Sandbox Escape (fictional)",
+      "dateAdded": "2099-01-14",
+      "shortDescription": "Fictional entry without version data, used to exercise 'possible exposure' handling.",
+      "requiredAction": "Confirm installed version against vendor advisory.",
+      "dueDate": "2099-02-04",
+      "knownRansomwareCampaignUse": "Unknown",
+      "cwes": []
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+# Asset inventory. criticality: 1 (low) .. 5 (business critical).
+# attributes feed the intelligence fleet's environment checks (autoscaling, replicas, staged_rollout, ...).
+
+[[assets]]
+id = "localhost"
+kind = "host"
+criticality = 3
+allowed_ports = [22, 443, 8080]
+attributes = { ntp = true }
+
+[[assets]]
+id = "web"
+kind = "service"
+criticality = 4
+depends_on = ["db"]
+allowed_ports = [8080]
+software = [{ name = "nginx", version = "1.24.0", vendor = "f5" }]
+attributes = { internet_facing = true, autoscaling = false, staged_rollout = true, rate_limited = true, replicas = 2 }
+certificates = [{ name = "web-tls", expires_at = 1830000000 }]
+
+[[assets]]
+id = "db"
+kind = "database"
+criticality = 5
+allowed_ports = [5432]
+software = [{ name = "postgresql", version = "15.6", vendor = "postgresql" }]
+attributes = { replicas = 2, failover_tested = true }

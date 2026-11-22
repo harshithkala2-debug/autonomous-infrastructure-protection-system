@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aips"
+version = "1.0.0"
+description = "Autonomous Infrastructure Protection System: a hierarchical multi-agent platform for monitoring, evaluating, repairing and protecting technology infrastructure."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "AIPS contributors" }]
+keywords = ["sre", "security", "self-healing", "multi-agent", "incident-response", "backup", "iam"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: OS Independent",
+  "Topic :: System :: Monitoring",
+  "Topic :: Security",
+]
+dependencies = []
+
+[project.optional-dependencies]
+crypto = ["cryptography>=42"]
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[project.scripts]
+aips = "aips.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["aips*"]
+
+[tool.setuptools.package-data]
+aips = ["data/*.json", "data/*.xml", "data/*.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
