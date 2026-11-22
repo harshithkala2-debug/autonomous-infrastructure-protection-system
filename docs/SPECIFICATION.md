@@ -294,6 +294,11 @@ Dry-run episodes are never recorded, because they say nothing about how well a s
    the best variant not yet tried in that incident.
 
 **Limits on exploration:**
+* **Known-bad floor:** a variant whose recent mean reward is below 0.5 is not chosen while a viable alternative
+  exists. Mid-incident, AIPS never falls back to such a variant; the current strategy moves on to its next,
+  more thorough steps instead.
+* **Evidence horizon:** only the last 90 days of episodes count, so a bad verdict is not permanent and a strategy
+  becomes eligible again once its old evidence ages out.
 * Playbooks with containment or data-integrity priority are never explorable.
 * Criticality-5 assets always use the canonical or best-known variant.
 * Every step of every variant still passes the authorisation policy, so exploring can never gain more autonomy.

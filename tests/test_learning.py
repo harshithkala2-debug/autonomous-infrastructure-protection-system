@@ -116,6 +116,11 @@ class SelectorTests(unittest.TestCase):
         sel = StrategySelector(ExperienceStore(), seed=1)
         self.assertEqual(sel.choose(self.pbs(), "overload", "api", exclude=["p1", "p2"]).playbook.name, "p3")
         self.assertIsNone(sel.choose(self.pbs(), "overload", "api", exclude=["p1", "p2", "p3"]))
+        bad = ExperienceStore()
+        for i in range(3):
+            bad.record_episode(Episode(f"x{i}", f"I{i}", "api", "capacity", "overload", "p3", i, "relapsed", 0.2))
+        self.assertIsNone(StrategySelector(bad, seed=1).choose(self.pbs(), "overload", "api", exclude=["p1", "p2"],
+                                                               mode="switch"))        # known-bad fallback refused
         contain = [Playbook(n, ["x"], Level.L3_DECISION, [], [], priority=0) for n in ("c1", "c2")]
         self.assertFalse(contain[0].explorable)
         self.assertEqual(sel.choose(contain, "x", "api").mode, "fixed")

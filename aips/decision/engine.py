@@ -177,7 +177,7 @@ class DecisionEngine:
             # cold start or business-critical asset: use the expert-reviewed canonical strategy
             return Choice(cands[0], False, "fixed" if critical else "canonical")
         return self.selector.choose(cands, inc.signal, inc.asset_id, exclude or [],
-                                    mode="switch" if exclude else "thompson")
+                                    mode="switch" if exclude else "thompson", now=self.clock.now())
 
     def _apply_choice(self, inc: Incident, rt: Runtime, choice: Choice, event: str) -> None:
         rt.playbook = choice.playbook

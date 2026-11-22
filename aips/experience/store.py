@@ -196,12 +196,15 @@ class ExperienceStore:
                 "SELECT COUNT(DISTINCT incident_id) FROM episodes WHERE asset=? AND signal=? AND started_at >= ?",
                 (asset, signal, since)).fetchone()[0])
 
-    def strategy_stats(self, signal: str, asset: str | None = None) -> dict[str, dict[str, float]]:
-        """Per strategy: trials, successes, mean reward, mean time to resolve. Asset-specific rows count double."""
+    def strategy_stats(self, signal: str, asset: str | None = None,
+                       since: float | None = None) -> dict[str, dict[str, float]]:
+        """Per strategy: trials, successes, mean reward, mean time to resolve. Asset-specific rows count double.
+        ``since`` limits the evidence window so old verdicts on a strategy eventually age out."""
         with self._lock:
             rows = self._db.execute(
                 "SELECT strategy, asset, outcome, reward, started_at, ended_at FROM episodes "
-                "WHERE signal = ? AND outcome != 'handed_off'", (signal,)).fetchall()
+                "WHERE signal = ? AND outcome != 'handed_off' AND started_at >= ?",
+                (signal, since if since is not None else float("-inf"))).fetchall()
         out: dict[str, dict[str, float]] = {}
         for r in rows:
             w = 2.0 if asset and r["asset"] == asset else 1.0

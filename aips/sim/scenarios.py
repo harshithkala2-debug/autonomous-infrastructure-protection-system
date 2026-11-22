@@ -94,6 +94,7 @@ class SimEnvironment:
         self.events: dict[int, list[Callable[["SimEnvironment"], None]]] = {}
         self.tick_ts: dict[int, float] = {}
         self.first_finding: dict[str, float] = {}
+        self.finding_times: dict[str, list[float]] = {}
         self.aips.bus.subscribe("finding.l1", self._on_finding)
         self.tick_no = 0
         self.background_identity = True
@@ -123,6 +124,7 @@ class SimEnvironment:
 
     def _on_finding(self, _topic: str, f) -> None:
         self.first_finding.setdefault(f.asset_id, f.created_at)
+        self.finding_times.setdefault(f.asset_id, []).append(f.created_at)
 
     def at(self, tick: int, fn: Callable[["SimEnvironment"], None]) -> None:
         self.events.setdefault(tick, []).append(fn)
@@ -628,8 +630,9 @@ def run_scenario(name: str, seed: int = 7, keep_env: bool = False) -> tuple[Scen
         env.run(sc.ticks)
         checks = sc.checks(env)
         fault_ts = env.start + (sc.fault_tick - 1) * env.tick_s
-        detect = [env.first_finding[a] - fault_ts for a in sc.fault_assets if a in env.first_finding
-                  and env.first_finding[a] >= fault_ts - env.tick_s]
+        # time to detect = first finding on the faulty asset at or after the fault (earlier noise does not count)
+        detect = [min(t for t in env.finding_times[a] if t >= fault_ts) - fault_ts for a in sc.fault_assets
+                  if any(t >= fault_ts for t in env.finding_times.get(a, []))]
         resolves = [i.resolved_at - fault_ts for a in sc.fault_assets for i in env.incidents(a)
                     if i.resolved_at and i.status == IncidentStatus.RESOLVED]
         fps = [i for i in env.incidents() if i.asset_id not in sc.expected_assets]
