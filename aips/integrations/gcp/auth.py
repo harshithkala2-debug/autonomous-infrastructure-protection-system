@@ -89,8 +89,11 @@ class GcloudToken(TokenProvider):
         exe = shutil.which("gcloud") or shutil.which("gcloud.cmd")
         if not exe:
             raise AuthError("gcloud CLI not found")
-        cp = self.runner([exe, "auth", "print-access-token"], capture_output=True, text=True, timeout=30,
-                         check=False)
+        try:
+            cp = self.runner([exe, "auth", "print-access-token"], capture_output=True, text=True, timeout=30,
+                             check=False)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise AuthError(f"gcloud did not return a token: {exc}") from exc
         if cp.returncode != 0 or not cp.stdout.strip():
             raise AuthError(f"gcloud auth print-access-token failed: {cp.stderr.strip()[:200]}")
         return cp.stdout.strip(), 3000

@@ -1,6 +1,7 @@
 """Google Cloud integration, tested against the in-process API emulator."""
 
 import logging
+import subprocess
 import tomllib
 import unittest
 
@@ -37,7 +38,8 @@ def client(g):
 
 class AuthAndClientTests(unittest.TestCase):
     def test_token_chain(self):
-        ch = ChainToken([GcloudToken(runner=lambda *a, **k: None), StaticToken("abc")])
+        not_logged_in = subprocess.CompletedProcess([], 1, "", "ERROR: no credentialed accounts")
+        ch = ChainToken([GcloudToken(runner=lambda *a, **k: not_logged_in), StaticToken("abc")])
         self.assertEqual(ch.token(), "abc")
         self.assertEqual(ch.used, "env")
         with self.assertRaises(AuthError):
