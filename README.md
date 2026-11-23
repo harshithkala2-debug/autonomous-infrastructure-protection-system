@@ -1,13 +1,27 @@
 # AIPS: Autonomous Infrastructure Protection System
 
-> **Proprietary: shared for evaluation only.** You may read AIPS and run it unmodified in a test environment to
-> evaluate it. Copying, modifying, redistributing, reusing, publishing results, or using it to train AI models
-> requires the owner's **prior written permission**: see [NOTICE.md](NOTICE.md) and [LICENSE](LICENSE). To ask,
-> open a *Permission request* issue.
+[![CI](https://github.com/harshithkala2-debug/autonomous-infrastructure-protection-system/actions/workflows/ci.yml/badge.svg)](https://github.com/harshithkala2-debug/autonomous-infrastructure-protection-system/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
+![Dependencies](https://img.shields.io/badge/runtime%20dependencies-0-brightgreen)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 AIPS is a hierarchical, multi-agent system that **detects, evaluates, decides, repairs, contains and recovers**
-problems in an organisation's technology infrastructure. Every change it makes passes through an explicit
-authorisation policy and is recorded in a tamper-evident audit ledger.
+problems in an organisation's technology infrastructure: servers, cloud identities, and the **AI agents** that
+now act on them. Every change it makes passes through an explicit authorisation policy and is recorded in a
+tamper-evident audit ledger.
+
+**New in 1.4: protection for AI agents.** AIPS checks every tool call an AI agent makes (Claude Code, your own
+Python agent, or any framework over HTTP). It **blocks** harmful or runaway actions, **asks** a human about
+risky ones, **saves** files before they change, **freezes** a misbehaving agent and **reverts** what it did.
+Tested live with a real Claude Code agent: AIPS blocked an attempt to send a credential away and froze the
+session, caught a prompt injection, and restored a file the agent overwrote.
+[docs/AGENTS.md](docs/AGENTS.md) · [live evidence](docs/field-tests/agent-live-2026-11-23.json)
+
+```bash
+pip install -e .
+aips agent demo                                             # a hijacked agent, contained end to end
+aips agent install-hook --settings ~/.claude/settings.json  # protect Claude Code
+```
 
 It puts the functions below into one coordinated control loop:
 
@@ -24,35 +38,45 @@ It puts the functions below into one coordinated control loop:
 | **Layer mesh: any layer can call any other** | Layers register capabilities and call each other at runtime. Level 2 asks Level 1 for a fresh re-scan when unsure; Level 3 re-checks with Level 1 before risky or approved actions; fleets escalate straight to Level 3. Loops and runaway call depth are refused. |
 | **Persistent experience** | A SQLite history of every episode (strategy, actions, outcome, reward, timing, relapses) and of each detector's accuracy. It survives restarts and drives chronic-issue escalation. |
 | **Google Cloud integration** | Discovers a project, then watches Cloud Monitoring, firewall rules, internet exposure, Cloud Audit Logs and Security Command Center. Acts through Compute Engine and IAM: VM reset, MIG restart and resize, deny rules, quarantine, firewall restore, service-account disable. Each action has a rollback, and the whole integration is tested end to end against an API emulator. See [docs/GCP.md](docs/GCP.md). |
+| **AI agent protection** | Judges every tool call before it runs: harm rules (wiping data, `curl \| sh`, sending secrets away, disabling security, privilege grabs, tampering with the guard), the agent's policy, and its behaviour (loops, bursts, error storms, prompt-injection taint). Checkpoints files first; Level 3 freezes the agent and reverts its changes through the policy. Works as a Claude Code hook, a Python wrapper and an HTTP API. See [docs/AGENTS.md](docs/AGENTS.md). |
 | **Automatic strategy exploration** | Several alternative playbooks per problem. AIPS starts with the reviewed default, tries each alternative once, then uses Thompson sampling to favour what works, and switches strategy when a fix fails or relapses. It never experiments with containment or on critical assets. |
 
 The core has **zero runtime dependencies** (Python ≥ 3.11 standard library only). AES-GCM backup encryption is
 optional and uses `cryptography`.
 
-> **Status: v1.2.0.** The complete system is implemented and tested. All 17 end-to-end scenarios pass on every
-> seed in the bundled simulator, the 87-test suite passes, AIPS has completed a live dry run on a real
-> workstation, and the Google Cloud integration passes end-to-end tests against an API emulator. **On a live Google
-> Cloud project** AIPS detected a staged service-account misuse from the real audit log and disabled the account
-> in Google IAM within 31 seconds, passing 6 of 6 live safety tests. It then **reverted everything the attacker
-> created** (a rogue account, a key and a role grant, including actions that arrived late in the log). See
-> [docs/FIELD_TEST_GCP.md](docs/FIELD_TEST_GCP.md). It has **not yet been validated on production
-> infrastructure**. See [Limitations](#limitations). The original concept is in
-> [`autonomous_infrastructure_protection_system_plan.md`](autonomous_infrastructure_protection_system_plan.md).
+> **Status: v1.4.0.** The complete system is implemented and tested on Linux, Windows and macOS (Python 3.11
+> to 3.13): 116 tests, plus all 17 simulator scenarios on 20 random seeds in CI. Field tests so far:
+> * **Real Google Cloud project:** a staged service-account misuse was detected from the real audit log and the
+>   account disabled in IAM within 31 seconds, with 6 of 6 live safety tests passing. Everything the attacker
+>   created (account, key, role grant, including late log events) was reverted.
+>   [docs/FIELD_TEST_GCP.md](docs/FIELD_TEST_GCP.md)
+> * **Real Claude Code agent:** an exfiltration attempt was blocked and the agent frozen, a prompt injection was
+>   flagged and the session tainted, and an overwritten file was restored.
+>   [docs/AGENTS.md](docs/AGENTS.md)
+> * **A live dry run on a workstation** with live NVD/KEV feeds. [docs/TESTING.md](docs/TESTING.md)
+>
+> AIPS has **not been validated on production infrastructure** yet. See [Limitations](#limitations). The original
+> concept is in [`autonomous_infrastructure_protection_system_plan.md`](autonomous_infrastructure_protection_system_plan.md).
 
 ---
 
 ## Quick start
 
+**Step-by-step instructions for Windows, macOS and Linux are in [docs/SETUP.md](docs/SETUP.md).** The short
+version:
+
 ```bash
 git clone https://github.com/harshithkala2-debug/autonomous-infrastructure-protection-system.git
 cd autonomous-infrastructure-protection-system
-pip install -e .            # or: pip install -e ".[crypto,dev]"
+python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
 
-aips scenarios              # list the end-to-end scenarios
-aips demo                   # run them all with success criteria
+aips demo                   # 17 end-to-end incident scenarios with success criteria
 aips demo --scenario ransomware -v   # full incident timeline
+aips agent demo             # an AI agent hijacked by prompt injection, contained and reverted
 aips bench --seeds 1-10     # benchmark across random seeds
-python -m pytest            # or: python -m unittest discover -s tests -t .
+python -m pytest -q         # the test suite
+aips run --config examples/aips-local.toml --no-api --ticks 4 --tick-seconds 5   # watch your own computer (changes nothing)
 ```
 
 Example (`aips demo --scenario ransomware -v`, abridged):
@@ -227,6 +251,7 @@ aips/
   repair/       known-good baselines, drift diff, action dispatcher, adapters
   traffic/      the two valves and their controller
   identity/     permission boundaries, behaviour profiles, freeze, appeals
+  agents/       AI agent guard: harm rules, checkpoints, freeze, revert, Claude Code hook, demo
   backup/       object store, signed manifests, vault, backup manager
   intel/        collectors (NVD/KEV/OSV/feeds), version ranges, relevance, failure patterns
   sim/          simulator, fault injection, scenarios, benchmark
@@ -235,7 +260,7 @@ aips/
   orchestrator.py  wiring + control loop
   config.py        TOML -> running system
   cli.py           `aips` command
-docs/           architecture, specification, threat model, operations, testing
+docs/           setup, AI agents, architecture, specification, threat model, operations, testing, GCP
 examples/       configuration + inventory
 tests/          unit, integration, scenario and API tests
 ```
@@ -249,9 +274,13 @@ These are stated plainly so that engineers can evaluate the system fairly:
   One live dry run on a single workstation with live NVD/KEV feeds found real issues and a real bug, now fixed
   (see [`docs/TESTING.md`](docs/TESTING.md#field-test-live-dry-run-on-a-real-workstation)). AIPS has not been
   run on production servers or compared head-to-head with commercial tools.
-* **Adapters are the integration boundary.** Only a generic command adapter, a recording adapter and the simulator
-  adapter are included. Kubernetes, cloud provider and firewall integrations are configured through command
-  templates; native SDK adapters are future work.
+* **Adapters are the integration boundary.** Native adapters exist for Google Cloud (REST, no SDK) and for the
+  simulator, plus a generic command adapter and a recording adapter. AWS, Azure and Kubernetes are configured
+  through command templates for now; native adapters for them are future work.
+* **The AI agent guard is a gate, not a sandbox.** It sees the calls that pass through it. An agent that
+  deliberately disguises a command can get past text rules. Behaviour checks, checkpoints, taint and freezing
+  limit the damage, but run agents you don't trust in a container or VM as well. See
+  [docs/AGENTS.md](docs/AGENTS.md#limits-read-these).
 * **Detection is statistical and rule-based.** There are no trained ML models. The anomaly detector is EWMA/z-score
   with level-shift handling. That choice keeps the system explainable, but subtle attacks may be missed.
 * **Single process.** The bus is in-process and synchronous for determinism. A distributed deployment would need
@@ -261,8 +290,12 @@ These are stated plainly so that engineers can evaluate the system fairly:
 
 See [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
+## Contributing
+
+Issues and pull requests are welcome: detectors, platform adapters (AWS, Azure, Kubernetes), agent integrations
+(LangChain, Cursor, MCP gateways) and docs. See [CONTRIBUTING.md](CONTRIBUTING.md). Report security issues
+privately: [SECURITY.md](SECURITY.md).
+
 ## License
 
-**AIPS Evaluation License: all rights reserved.** Read and evaluate only; anything else requires the owner's
-prior written permission. See [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md). Versions 1.0.0–1.1.0 were briefly
-published under Apache 2.0; that grant covers only copies of those exact versions obtained at the time.
+[MIT](LICENSE) © 2026 harshithkala2-debug.

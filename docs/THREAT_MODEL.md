@@ -27,6 +27,8 @@ how, and what it does not cover.
 | T10 | **Malicious intelligence feed** | HTTPS only, size caps, XML entity declarations rejected, source reliability weighting. A finding requires a local environment check, and upgrades always need approval. |
 | T11 | **Unauthorised API use** | Bearer token (constant-time compare, minimum 16 characters), default bind 127.0.0.1, 1 MB body cap. Human identities are recorded in the audit log. |
 | T12 | **Disclosure of the organisation's network ranges** | Vault allow-lists live only in private configuration. Logs contain salted hashes of caller IPs. |
+| T14 | **An AI agent is wrong, loops or is hijacked by prompt injection** | Every tool call is judged before it runs (harm rules, policy, behaviour). Critical actions are blocked and the agent frozen. Files are checkpointed first and reverted from the first suspicious call. Injected instructions in tool output taint the session, so a human approves risky calls. See [AGENTS.md](AGENTS.md). |
+| T15 | **The agent attacks its own guard** (unfreeze itself, edit hook settings, touch the guard's state) | Self-protection rules block these as critical. Only a human can unfreeze. The hook fails to *ask*, never to allow. Residual risk: the guard is not a sandbox, so a deliberately obfuscated command can evade text rules. Use OS isolation for untrusted agents. |
 | T13 | **AIPS itself misbehaves** | Kill switch, dry-run mode and the two-person rule for HIGH risk. Containment is never auto-reverted, and every step is audited. |
 
 ## Out of scope / residual risk

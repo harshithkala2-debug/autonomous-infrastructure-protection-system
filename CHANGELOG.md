@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.4.0
+
+**Protection for AI agents, open source under MIT, and a step-by-step setup guide.**
+
+* **AgentGuard (`aips/agents/`).** It judges every tool call an AI agent makes *before* it runs:
+  * Harm rules: destroying data or systems, running downloaded code, sending secrets away, weakening
+    security controls, gaining privilege, tampering with the guard itself.
+  * The agent's policy: allowed, denied and ask-first tools, workspace scope, approved domains, rate and budget.
+  * Behaviour: runaway loops, bursts, error storms.
+  * Verdicts: ALLOW / FLAG / ASK / BLOCK.
+* **Prompt injection.** A tool output that tries to instruct the agent taints the session. After that, risky
+  calls need a human.
+* **Save and fix.** Files are checkpointed (content-addressed, SHA-256 verified) before a call that may change
+  or delete them. `revert` restores everything from the agent's first suspicious call onward, deletes files it
+  created, runs undo callbacks and lists what cannot be undone. A revert can itself be undone.
+* **Freeze.** A critical block, or 3 blocks in 10 minutes, freezes the agent until a human releases it. Inside
+  AIPS this is Level 3's new `agent-containment` playbook (`agent.freeze` → `agent.revert_actions` →
+  `notify.humans`), run through the authorisation policy. New category `agent`, new policy actions and a new
+  verification check.
+* **Integrations:**
+  * a Claude Code hook (`aips agent hook`, `aips agent install-hook`), which only ever makes Claude Code stricter;
+  * a Python wrapper (`AgentGuard.guarded`);
+  * HTTP endpoints `/agents/check`, `/agents/result`, `/agents` and `/agents/{id}/release`.
+* **CLI:** `aips agent demo|status|history|check|revert|undo-revert|unfreeze`.
+* **Live test with a real Claude Code agent**
+  (`docs/field-tests/agent-live-2026-11-23.json`):
+  * credential exfiltration was blocked and the agent frozen;
+  * the follow-up call was refused;
+  * the prompt injection was flagged and the session tainted;
+  * the overwritten file was restored by `revert`.
+* **License: MIT** (was proprietary/evaluation-only). Issue templates for bugs and features. Contributing guide.
+* **docs/SETUP.md:** a verified install-to-running guide for Windows, macOS and Linux, plus
+  `examples/aips-local.toml`, an observe-only configuration for your own computer. docs/AGENTS.md is new.
+* 23 new tests (116 total).
+
 ## 1.3.0
 
 Closes the gaps found by the first live Google Cloud field test. All verified live except the human-account

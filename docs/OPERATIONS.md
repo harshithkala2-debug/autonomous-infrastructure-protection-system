@@ -47,6 +47,10 @@ All endpoints except `/health` require `Authorization: Bearer <token>`.
 | GET | `/mesh` | | layer capabilities, call statistics, recent inter-layer calls |
 | POST | `/mesh/call` | `target, capability, payload` | call a read-only capability (e.g. `L1.rescan`) |
 | GET | `/experience?signal=&asset=` | | history summary, per-strategy track record, similar past episodes |
+| POST | `/agents/check` | `agent, tool, args, session, cwd, call_id` | judge an AI agent's tool call before it runs ([AGENTS.md](AGENTS.md)) |
+| POST | `/agents/result` | `call_id, success, output` | report what the call returned (scanned for prompt injection) |
+| GET | `/agents?agent=&limit=` | | agent guard status and recent calls |
+| POST | `/agents/{agent}/release` | `by, reason` | a human unfreezes an agent (URL-encode ids containing `/`) |
 | GET | `/audit?limit=100&prefix=action.` | | audit records |
 | GET | `/audit/verify` | | verify the hash chain |
 

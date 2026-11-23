@@ -23,6 +23,15 @@ onto the implementation.
 | Persistent, rich historical experience | `aips/experience/store.py`: `ExperienceStore` (SQLite) |
 | Automatic exploration of strategies | `aips/decision/strategies.py`: `StrategySelector` + playbook variants |
 
+## AI agent guard
+
+`aips/agents/` judges an AI agent's tool calls inline, before they run, and produces findings in category
+`agent` that enter the normal hierarchy. CRITICAL or HIGH findings bypass Level 2. Level 3's
+`agent-containment` playbook freezes the agent and reverts its file changes through the authorisation policy.
+State (calls, freezes, taint, checkpoints, reverts) is in SQLite plus a content-addressed blob store, so the
+Claude Code hook, which is one process per call, and a long-running AIPS share the same model. See
+[AGENTS.md](AGENTS.md).
+
 ## Layer mesh
 
 ```

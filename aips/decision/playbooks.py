@@ -170,6 +170,16 @@ def default_playbooks() -> list[Playbook]:
             priority=PRIORITY_CONTAINMENT, required_passes=1, release_valves=False,
             description="Freeze the identity, revoke its sessions, notify owners (appeal path open)."),
         Playbook(
+            "agent-containment", ["agent_harmful_action", "agent_injection", "agent_erratic",
+                                  "agent_policy_violation"], Level.L3_DECISION,
+            steps=[Step("agent.freeze", target="{tag:agent}"),
+                   Step("agent.revert_actions", target="{tag:agent}"),
+                   Step("notify.humans", params={"message": "AI agent {tag:agent}: containment ran (freeze, then revert of its changes); "
+                                                            "a human decides whether it may continue"})],
+            checks=[Check("agent_frozen", {"agent": "{tag:agent}"})],
+            priority=PRIORITY_CONTAINMENT, required_passes=1, release_valves=False,
+            description="Freeze the AI agent, restore what it changed since it misbehaved, notify humans."),
+        Playbook(
             "ransomware-containment", ["mass_encryption"], Level.L3_DECISION,
             steps=[Step("backup.hold_replication"),
                    Step("host.isolate"),
@@ -204,10 +214,11 @@ def default_playbooks() -> list[Playbook]:
 # When several signals fire on one asset in the same cycle, the most causal one is handled first and
 # opens the incident; the others attach to it as correlated symptoms. Lower index = more causal.
 SIGNAL_PRECEDENCE = [
-    "mass_encryption", "boundary_violation", "credential_misuse", "unexpected_port", "config_drift",
+    "mass_encryption", "agent_harmful_action", "boundary_violation", "credential_misuse", "agent_injection",
+    "unexpected_port", "config_drift",
     "service_down", "overload", "disk_full", "disk_forecast", "cpu_saturated", "memory_pressure",
     "replication_lag", "error_rate_critical", "error_rate_high", "latency_high", "cert_expiry",
-    "vulnerable_component", "identity_anomaly",
+    "vulnerable_component", "identity_anomaly", "agent_erratic", "agent_policy_violation",
 ]
 
 

@@ -1,0 +1,6 @@
+# One asset: this computer. Ports you expect to be open go in allowed_ports; anything else is reported.
+[[assets]]
+id = "localhost"
+kind = "host"
+criticality = 3
+allowed_ports = [22, 135, 139, 445, 5040, 7680]

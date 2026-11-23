@@ -20,9 +20,11 @@ class CheckResult:
 
 class Verifier:
     def __init__(self, baselines: DesiredStateStore, is_frozen: Callable[[str], bool] | None = None,
-                 adapter_health: Callable[[str], bool | None] | None = None):
+                 adapter_health: Callable[[str], bool | None] | None = None,
+                 agent_frozen: Callable[[str], bool] | None = None):
         self.baselines = baselines
         self.is_frozen = is_frozen or (lambda _i: False)
+        self.agent_frozen = agent_frozen or (lambda _a: False)
         self.adapter_health = adapter_health or (lambda _a: None)
 
     def run(self, check: Check, inc: Incident, obs: Observation | None, current_keys: set[str],
@@ -55,6 +57,10 @@ class Verifier:
             ident = str(params["identity"])
             fr = self.is_frozen(ident)
             return CheckResult(k, fr, f"{ident} frozen={fr}")
+        if k == "agent_frozen":
+            agent = str(params["agent"])
+            fr = self.agent_frozen(agent)
+            return CheckResult(k, fr, f"agent {agent} frozen={fr}")
         if k == "signal_clear":
             still = sorted((keys or {inc.key}) & current_keys)
             return CheckResult(k, not still, "signal cleared" if not still else f"still present: {', '.join(still)}")

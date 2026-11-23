@@ -21,6 +21,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
+from .agents.guard import AgentConfig, AgentDecision, AgentGuard, ToolCall
 from .backup.manager import BackupManager
 from .core.audit import AuditLedger
 from .core.bus import EventBus
@@ -85,7 +86,8 @@ class AIPS:
                  baselines: DesiredStateStore | None = None, memory: OutcomeMemory | None = None,
                  backup: BackupManager | None = None, guard: IdentityGuard | None = None,
                  notifier: Notifier | None = None, playbooks: PlaybookLibrary | None = None,
-                 fleet: Level1Fleet | None = None, experience: ExperienceStore | None = None):
+                 fleet: Level1Fleet | None = None, experience: ExperienceStore | None = None,
+                 agents: AgentGuard | None = None):
         self.clock = clock or SystemClock()
         self.config = config or AIPSConfig()
         self.inventory = inventory
@@ -110,11 +112,15 @@ class AIPS:
         self.fleet = fleet or default_fleet(self.baselines, self.config.thresholds)
         self.guard = guard or IdentityGuard()
         self.guard.on_false_positive = self._identity_false_positive
+        # AI agents: calls are judged inline; freezing / reverting is a Level 3 decision through the policy
+        self.agents = agents or AgentGuard(AgentConfig(autonomous_freeze=False), clock=self.clock)
+        self.agents.on_finding = lambda f: self._pending.append(f)
+        self.agents.audit = self.audit
         self.traffic = TrafficController(self.config.valves, on_change=self._valve_changed)
         self.relevance = RelevanceEngine(inventory)
         self.dispatcher = ActionDispatcher(adapter, self.clock.now, dry_run=self.config.policy.dry_run)
         self._register_handlers()
-        self.verifier = Verifier(self.baselines, self.guard.is_frozen, adapter.health)
+        self.verifier = Verifier(self.baselines, self.guard.is_frozen, adapter.health, self.agents.is_frozen)
         self.selector = StrategySelector(self.experience, self.config.strategy_seed,
                                          enabled=self.config.strategy_exploration)
         self.engine = DecisionEngine(self.policy, self.approvals, self.dispatcher, self.playbooks, inventory,
@@ -180,6 +186,9 @@ class AIPS:
                    "identity freeze / profile state")
         m.register("traffic", "state", lambda p: [v for v in self.traffic.snapshot() if v["asset"] == p["asset"]],
                    "valve positions for an asset")
+        m.register("agent", "status", lambda p: {"frozen": self.agents.is_frozen(p["agent"]),
+                                                 "recent": self.agents.history(p["agent"], int(p.get("limit", 20)))},
+                   "an AI agent's freeze state and recent tool calls")
         if self.backup is not None:
             m.register("backup", "status", lambda p: self.backup.status(), "backup layers and replication state")
 
@@ -242,6 +251,33 @@ class AIPS:
                 return was_frozen, "unfrozen" if was_frozen else "identity was not frozen", None
             return False, f"unknown identity action {req.kind}", None
 
+        def agent(req: ActionRequest):
+            if req.kind == "agent.freeze":
+                self.agents.freeze(req.target, req.rationale or "contained by AIPS", now(), by=req.requested_by.name)
+                return True, f"agent {req.target} frozen", {"agent": req.target}
+            if req.kind == "agent.revert_actions":
+                rep = self.agents.revert(req.target, by=req.requested_by.name)
+                if rep.needs_review:
+                    self.notifier.send(f"Review actions of AI agent {req.target}",
+                                       "Not automatically reversible: " + "; ".join(rep.needs_review)[:2000], "high",
+                                       {"agent": req.target})
+                detail = (f"restored {len(rep.restored)} file(s), removed {len(rep.removed)} created file(s), "
+                          f"{rep.undo_callbacks} undo callback(s); {len(rep.needs_review)} for human review"
+                          + (f"; failed: {'; '.join(rep.failed)[:300]}" if rep.failed else ""))
+                return rep.ok, detail, {"revert": rep.id}
+            if req.kind == "agent.unfreeze":
+                ok = self.agents.unfreeze(req.target, by=req.requested_by.name)
+                return ok, "agent unfrozen" if ok else "agent was not frozen", None
+            return False, f"unknown agent action {req.kind}", None
+
+        def agent_rollback(res):
+            if res.kind == "agent.freeze":
+                return self.agents.unfreeze(res.target, by="rollback"), "unfrozen by rollback"
+            if res.kind == "agent.revert_actions":
+                rid = (res.rollback or {}).get("revert")
+                return self.agents.undo_revert(rid) if rid else (False, "no revert recorded")
+            return False, "no rollback"
+
         def backup(req: ActionRequest):
             if self.backup is None:
                 return False, "no backup manager configured", None
@@ -273,9 +309,11 @@ class AIPS:
 
         d.register("traffic.", traffic)
         d.register("identity.", identity)
+        d.register("agent.", agent)
         d.register("backup.", backup)
         d.register("notify.", notify)
         d.rollback_handlers["identity."] = identity_rollback
+        d.rollback_handlers["agent."] = agent_rollback
 
     def _revert_late_actions(self) -> None:
         """Audit logs arrive with a delay: an attacker's last actions can show up *after* the identity was frozen
@@ -344,6 +382,22 @@ class AIPS:
         if not dec.allowed:
             self.counters["access_denied"] += 1
         return dec
+
+    def check_agent_call(self, call: ToolCall) -> AgentDecision:
+        """Judge an AI agent's tool call before it runs (findings join the next tick's hierarchy pass)."""
+        dec = self.agents.check(call)
+        self.counters[f"agent_{dec.verdict.value}"] += 1
+        return dec
+
+    def agent_result(self, call_id: str, success: bool, output: Any = None) -> dict[str, Any]:
+        return self.agents.record_result(call_id, success, output)
+
+    def release_agent(self, agent_id: str, by: str, reason: str = "") -> dict[str, Any]:
+        """A human lets a frozen agent continue (the only way an agent freeze ends)."""
+        res = self.dispatcher.execute(ActionRequest("agent.unfreeze", agent_id, {}, Level.HUMAN,
+                                                    rationale=reason or f"released by {by}"))
+        self.audit.append(by, "agent.released", {"agent": agent_id, "reason": reason, "detail": res.detail})
+        return {"agent": agent_id, "frozen": self.agents.is_frozen(agent_id), "detail": res.detail}
 
     def ingest_findings(self, findings: Iterable[Finding]) -> None:
         self._pending.extend(findings)
@@ -524,6 +578,7 @@ class AIPS:
             "pending_approvals": len(self.approvals.pending()),
             "valves": [v for v in self.traffic.snapshot() if v["position"] < 1.0 or v["ramping"]],
             "identity": self.guard.snapshot(),
+            "agents": self.agents.snapshot(),
             "backup": self.backup.status() if self.backup else None,
             "audit": {"records": len(self.audit), "verified": self.audit.verify()[0]},
             "counters": dict(self.counters),
@@ -548,6 +603,7 @@ class AIPS:
         lines += [f'aips_valve_position{{asset="{v["asset"]}",valve="{v["kind"]}"}} {v["position"]}'
                   for v in self.traffic.snapshot()]
         lines += ["# TYPE aips_frozen_identities gauge", f"aips_frozen_identities {len(self.guard.frozen)}"]
+        lines += ["# TYPE aips_frozen_agents gauge", f"aips_frozen_agents {len(self.agents.store.frozen())}"]
         return "\n".join(lines) + "\n"
 
 

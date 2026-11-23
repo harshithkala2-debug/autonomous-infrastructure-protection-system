@@ -43,6 +43,7 @@ class Category(str, Enum):
     IDENTITY = "identity"
     DATA_INTEGRITY = "data_integrity"
     VULNERABILITY = "vulnerability"
+    AGENT = "agent"                # an AI agent's tool calls
 
 
 class Level(IntEnum):

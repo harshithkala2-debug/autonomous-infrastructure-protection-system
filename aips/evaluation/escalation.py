@@ -18,7 +18,7 @@ class EscalationConfig:
     direct_severity: Severity = Severity.CRITICAL
     high_confidence_bypass: float = 0.9
     sensitive_categories: set[Category] = field(
-        default_factory=lambda: {Category.SECURITY, Category.IDENTITY, Category.DATA_INTEGRITY})
+        default_factory=lambda: {Category.SECURITY, Category.IDENTITY, Category.DATA_INTEGRITY, Category.AGENT})
     sensitive_min_severity: Severity = Severity.HIGH
     sensitive_min_confidence: float = 0.75
 

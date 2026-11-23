@@ -40,12 +40,14 @@ from .strategies import Choice, StrategySelector
 from .verification import Verifier
 
 CONTAINMENT_KINDS = {"host.isolate", "identity.freeze", "identity.revoke_sessions", "identity.revert_actions",
-                     "network.block_port", "backup.hold_replication"}
+                     "network.block_port", "backup.hold_replication", "agent.freeze", "agent.revert_actions"}
 AVAILABILITY_KINDS = {"service.restart", "service.scale_out", "traffic.release", "config.restore_baseline",
                       "storage.expand", "package.upgrade"}
 EXCLUSIVE = {
     "identity.freeze": {"identity.unfreeze"},
     "identity.unfreeze": {"identity.freeze"},
+    "agent.freeze": {"agent.unfreeze"},
+    "agent.unfreeze": {"agent.freeze"},
     "backup.restore": {"service.restart", "config.restore_baseline", "package.upgrade"},
     "traffic.release": {"traffic.throttle", "traffic.restrict"},
 }

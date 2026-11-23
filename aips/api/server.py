@@ -26,6 +26,10 @@ Endpoints::
     GET  /mesh                            layer capabilities, call statistics, recent inter-layer calls
     POST /mesh/call                       {"target","capability","payload"} - read-only capabilities only
     GET  /experience[?signal=&asset=]     history summary, per-strategy track record, similar episodes
+    POST /agents/check                    {"agent","tool","args","session","cwd"} - judge an AI agent's tool call
+    POST /agents/result                   {"call_id","success","output"} - report what the call returned
+    GET  /agents[?agent=]                 agent guard status and recent tool calls
+    POST /agents/{agent}/release          {"by","reason"} - a human unfreezes an agent (URL-encode the id)
     GET  /audit?limit=100                 recent audit records
     GET  /audit/verify                    verify the hash chain
 """
@@ -38,8 +42,9 @@ import logging
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
+from ..agents.guard import ToolCall
 from ..core.models import Category, Evidence, Finding, IncidentStatus, Severity, to_jsonable
 from ..identity.guard import AccessEvent
 from ..orchestrator import AIPS
@@ -70,7 +75,7 @@ def make_handler(aips: AIPS, token: str, lock: threading.RLock) -> type[BaseHTTP
         out = {}
         for a, b in zip(pp, sp):
             if a.startswith("{"):
-                out[a[1:-1]] = b
+                out[a[1:-1]] = unquote(b)
             elif a != b:
                 return None
         return out
@@ -206,6 +211,31 @@ def make_handler(aips: AIPS, token: str, lock: threading.RLock) -> type[BaseHTTP
             out["strategies"] = aips.experience.strategy_stats(sig, q.get("asset", [None])[0])
             out["similar"] = aips.experience.similar(sig, q.get("asset", [None])[0], 10)
         return out
+
+    @route("POST", "/agents/check")
+    def agent_check(q, b):
+        need(b, "agent", "tool")
+        if not isinstance(b.get("args", {}), dict):
+            raise ApiError(400, "args must be an object")
+        d = aips.check_agent_call(ToolCall(str(b["agent"]), str(b["tool"]), dict(b.get("args") or {}),
+                                           b.get("session"), b.get("cwd"), call_id=b.get("call_id")))
+        return {"call_id": d.call_id, "verdict": d.verdict.value, "allowed": d.allowed, "risk": d.risk,
+                "reasons": d.reasons, "checkpoints": d.checkpoints, "frozen": aips.agents.is_frozen(d.agent_id)}
+
+    @route("POST", "/agents/result")
+    def agent_result(q, b):
+        need(b, "call_id")
+        return aips.agent_result(str(b["call_id"]), bool(b.get("success", True)), b.get("output"))
+
+    @route("GET", "/agents")
+    def agents(q, b):
+        return {"status": aips.agents.snapshot(),
+                "recent": aips.agents.history(q.get("agent", [None])[0], int(q.get("limit", ["50"])[0]))}
+
+    @route("POST", "/agents/{agent}/release")
+    def agent_release(q, b, agent):
+        need(b, "by")
+        return aips.release_agent(agent, b["by"], b.get("reason", ""))
 
     @route("GET", "/audit/verify")
     def audit_verify(q, b):

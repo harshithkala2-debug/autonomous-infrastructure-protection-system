@@ -1,92 +1,21 @@
-AIPS EVALUATION LICENSE
-Version 1.0
+MIT License
 
-Copyright (c) 2026 the owner of the GitHub account "harshithkala2-debug"
-(https://github.com/harshithkala2-debug). All rights reserved.
+Copyright (c) 2026 harshithkala2-debug (https://github.com/harshithkala2-debug)
 
-This license applies to the Autonomous Infrastructure Protection System ("AIPS"),
-including its source code, documentation, diagrams, configuration examples, test
-scenarios and any other material in this repository (together, the "Software"),
-from commit version 1.1.1 onward.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-1. WHAT YOU MAY DO
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-   If the Licensor has given you access to the Software, you may, for the sole
-   purpose of evaluating it:
-
-   (a) read and review the Software;
-   (b) run the Software, unmodified, on systems you own or are authorised to
-       operate, in a non-production test environment; and
-   (c) share your evaluation feedback privately with the Licensor.
-
-   Temporary copies made automatically by your computer, browser or Git client in
-   order to view or run the Software are permitted, provided they are deleted when
-   your evaluation ends.
-
-2. WHAT YOU MAY NOT DO WITHOUT THE LICENSOR'S PRIOR WRITTEN PERMISSION
-
-   (a) copy, reproduce, mirror or archive the Software, in whole or in part,
-       other than as allowed in section 1;
-   (b) modify, adapt, translate, or create derivative works based on the Software;
-   (c) distribute, publish, sublicense, sell, lend, host, or otherwise make the
-       Software available to anyone else;
-   (d) use the Software, or any part, idea expressed in code, design or document
-       of it, in production, in a commercial product or service, or for the
-       benefit of any third party;
-   (e) incorporate the Software, or any part of it, into other software;
-   (f) use the Software or any part of it to train, fine-tune, evaluate or prompt
-       machine-learning models, or include it in any dataset;
-   (g) publish benchmarks, reviews, or evaluation results of the Software;
-   (h) remove, obscure or alter this license, copyright notices, or attributions;
-   (i) attempt to circumvent any access restriction placed on the Software.
-
-3. HOW TO ASK FOR PERMISSION
-
-   Any use beyond section 1 requires a written permission from the Licensor that
-   names you and describes the permitted use. Request it by opening a
-   "Permission request" issue in this repository, or by contacting the Licensor
-   through https://github.com/harshithkala2-debug. Silence is not permission.
-   Permissions are personal and may not be transferred.
-
-4. OWNERSHIP
-
-   The Software is licensed, not sold. The Licensor keeps all right, title and
-   interest in the Software. Nothing in this license grants any right in any
-   trademark, name, or patent of the Licensor.
-
-5. FEEDBACK
-
-   If you send the Licensor suggestions or feedback, the Licensor may use them
-   freely without any obligation to you.
-
-6. TERMINATION
-
-   This license ends automatically, without notice, if you breach it, or when
-   the Licensor withdraws your access or tells you that your evaluation has
-   ended. When it ends you must stop using the Software and delete all copies
-   in your possession.
-
-7. NO WARRANTY
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO MERCHANTABILITY, FITNESS FOR A PARTICULAR
-   PURPOSE AND NON-INFRINGEMENT. IT IS EVALUATION SOFTWARE AND MUST NOT BE USED TO
-   OPERATE PRODUCTION INFRASTRUCTURE.
-
-8. LIMITATION OF LIABILITY
-
-   TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE LICENSOR SHALL NOT BE LIABLE FOR
-   ANY DAMAGES OF ANY KIND ARISING FROM THE USE OF, OR INABILITY TO USE, THE
-   SOFTWARE.
-
-9. EARLIER VERSIONS
-
-   Versions 1.0.0 to 1.1.0 of the Software were briefly published under the
-   Apache License 2.0. That license continues to apply only to copies of those
-   exact versions that a person obtained while they were published under it.
-   It does not apply to this or any later version.
-
-10. GENERAL
-
-   If any part of this license is held unenforceable, the rest remains in effect.
-   Any rights not expressly granted are reserved by the Licensor.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

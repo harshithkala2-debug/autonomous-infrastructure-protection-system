@@ -294,6 +294,60 @@ def cmd_experience(args) -> int:
     return 0
 
 
+def cmd_agent(args) -> int:
+    from .agents import claude_code
+    if args.verb == "hook":
+        return claude_code.main(state_dir=args.state, scope=args.scope)
+    if args.verb == "demo":
+        res = __import__("aips.agents.demo", fromlist=["run"]).run()
+        ok = res["frozen"] and res["app_restored"] and res["data_restored"] == 3 and res["released"]
+        print()
+        print("AI agent demo:", "PASS" if ok else "FAIL")
+        return 0 if ok else 1
+    if args.verb == "install-hook":
+        snippet = claude_code.hook_settings(scope=args.scope)
+        if not args.settings:
+            print(json.dumps(snippet, indent=2))
+            print()
+            print("# add this to .claude/settings.json (project) or ~/.claude/settings.json (all projects),")
+            print("# or run: aips agent install-hook --settings <path>")
+            return 0
+        path = claude_code.install(args.settings, scope=args.scope)
+        print(f"AIPS hooks installed in {path}; restart Claude Code to load them")
+        return 0
+    g = claude_code.load_guard(args.state)
+    if args.verb == "status":
+        print(json.dumps(g.snapshot(), indent=2, default=str))
+    elif args.verb == "history":
+        for h in g.history(args.agent, args.limit):
+            print(f"{h['verdict']:5} {h['risk']:.2f} {h['agent']:22} {h['tool']:10} {h['args'][:70]}"
+                  + (f"  <- {h['reasons'][0]}" if h["reasons"] else ""))
+    elif args.verb == "check":
+        if not args.agent or not args.tool_args:
+            print("usage: aips agent check --agent ID --tool Bash --args '{\"command\": \"...\"}'")
+            return 2
+        from .agents import AgentGuard, AgentStore, ToolCall
+        dry = AgentGuard(g.config, g.policy, AgentStore(":memory:"))      # a dry check never touches real state
+        d = dry.check(ToolCall(args.agent, args.tool, json.loads(args.tool_args), cwd=str(Path.cwd())))
+        print(d.summary())
+        return 0 if d.allowed else 1
+    elif args.verb in ("revert", "unfreeze", "undo-revert"):
+        if not args.agent and args.verb != "undo-revert":
+            print("--agent is required")
+            return 2
+        if args.verb == "revert":
+            rep = g.revert(args.agent, since=args.since, by=args.by, dry_run=args.dry_run)
+            print(json.dumps(rep.__dict__, indent=2))
+            return 0 if rep.ok else 1
+        if args.verb == "undo-revert":
+            ok, msg = g.undo_revert(args.revert_id)
+            print(msg)
+            return 0 if ok else 1
+        ok = g.unfreeze(args.agent, by=args.by)
+        print(f"{args.agent}: " + ("unfrozen" if ok else "was not frozen"))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="aips", description="Autonomous Infrastructure Protection System")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -355,6 +409,23 @@ def main(argv: list[str] | None = None) -> int:
     ex.add_argument("--signal")
     ex.add_argument("--asset")
     ex.set_defaults(fn=cmd_experience)
+
+    ag = sub.add_parser("agent", help="protect AI agents: Claude Code hook, demo, status, revert, unfreeze")
+    ag.add_argument("verb", choices=["hook", "demo", "install-hook", "status", "history", "check", "revert",
+                                     "undo-revert", "unfreeze"])
+    ag.add_argument("--state", help="state directory (default ~/.aips-agent or AIPS_AGENT_HOME)")
+    ag.add_argument("--scope", choices=["session", "global"], default="session",
+                    help="hook: freeze one Claude Code session (default) or every session")
+    ag.add_argument("--settings", help="install-hook: Claude Code settings.json to merge the hooks into")
+    ag.add_argument("--agent", help="agent id, e.g. claude-code/1a2b3c4d")
+    ag.add_argument("--since", type=float, help="revert: from this unix time instead of the first flagged call")
+    ag.add_argument("--dry-run", action="store_true", help="revert: show what would be restored")
+    ag.add_argument("--revert-id", help="undo-revert: the RV-... id printed by revert")
+    ag.add_argument("--tool", default="Bash", help="check: tool name")
+    ag.add_argument("--args", dest="tool_args", help="check: tool arguments as JSON")
+    ag.add_argument("--by", default="human", help="who is acting (recorded)")
+    ag.add_argument("--limit", type=int, default=50)
+    ag.set_defaults(fn=cmd_agent)
 
     sub.add_parser("version").set_defaults(fn=lambda _a: print(__version__) or 0)
 

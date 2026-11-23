@@ -1,0 +1,34 @@
+# AIPS on your own computer: watch it, decide, record - change nothing.
+#
+# Works on Windows, macOS and Linux with no extra software. See docs/SETUP.md, step 5.
+#
+#   aips run --config examples/aips-local.toml --no-api --ticks 4 --tick-seconds 5 --report local-report.json
+
+[aips]
+data_dir = "runtime/aips-local"     # audit ledger, baselines, experience (relative to this file)
+tick_seconds = 30
+dry_run = true                      # decisions are made and audited, nothing is executed
+
+[inventory]
+path = "inventory-local.toml"
+
+[api]
+enabled = true                      # `--no-api` turns it off; otherwise set AIPS_API_TOKEN (16+ characters)
+host = "127.0.0.1"
+port = 8780
+token_env = "AIPS_API_TOKEN"
+
+[policy]
+max_autonomous_risk = "MEDIUM"
+two_person_rule_for_high = true
+
+[experience]
+path = "runtime/aips-local/experience.db"
+
+[telemetry.host]
+asset_id = "localhost"
+disk_paths = ["."]                  # the drive you run AIPS from
+listening_ports = true              # report ports this computer is listening on (exposure detector)
+
+[adapter]
+type = "recording"                  # only records what it would do
