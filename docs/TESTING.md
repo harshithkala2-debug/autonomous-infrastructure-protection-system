@@ -62,6 +62,12 @@ See [FIELD_TEST_GCP.md](FIELD_TEST_GCP.md):
   invalid credentials);
 * 3 bugs found and fixed.
 
+## Field test report
+
+[AIPS_Field_Test_Report.pdf](AIPS_Field_Test_Report.pdf) (24 pages). It has claims C1–C11, each tied to raw evidence
+E1–E19 (sanitised, quoted in full, SHA-256 fingerprinted). It covers the Google Cloud and Claude Code field
+tests, the test suite and the benchmark.
+
 ## Field test: real Claude Code agent
 
 [`field-tests/agent-live-2026-11-23.json`](field-tests/agent-live-2026-11-23.json): Claude Code 2.1.317 in

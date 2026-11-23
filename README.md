@@ -15,7 +15,7 @@ Python agent, or any framework over HTTP). It **blocks** harmful or runaway acti
 risky ones, **saves** files before they change, **freezes** a misbehaving agent and **reverts** what it did.
 Tested live with a real Claude Code agent: AIPS blocked an attempt to send a credential away and froze the
 session, caught a prompt injection, and restored a file the agent overwrote.
-[docs/AGENTS.md](docs/AGENTS.md) · [live evidence](docs/field-tests/agent-live-2026-11-23.json)
+[docs/AGENTS.md](docs/AGENTS.md) · [live evidence](docs/field-tests/agent-live-2026-11-23.json) · [field test report (PDF)](docs/AIPS_Field_Test_Report.pdf)
 
 ```bash
 pip install -e .
@@ -54,6 +54,9 @@ optional and uses `cryptography`.
 >   flagged and the session tainted, and an overwritten file was restored.
 >   [docs/AGENTS.md](docs/AGENTS.md)
 > * **A live dry run on a workstation** with live NVD/KEV feeds. [docs/TESTING.md](docs/TESTING.md)
+>
+> All of this is in the 24-page [field test report](docs/AIPS_Field_Test_Report.pdf). Every claim is linked to raw
+> evidence that is quoted in full and SHA-256 fingerprinted.
 >
 > AIPS has **not been validated on production infrastructure** yet. See [Limitations](#limitations). The original
 > concept is in [`autonomous_infrastructure_protection_system_plan.md`](autonomous_infrastructure_protection_system_plan.md).
