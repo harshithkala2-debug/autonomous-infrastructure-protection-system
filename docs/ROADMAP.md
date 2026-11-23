@@ -2,7 +2,11 @@
 
 ## Next
 
-* Native adapters: Kubernetes (client API), AWS / Azure / GCP SDKs, firewall APIs (nftables, cloud security
+* AI agents: native integrations beyond the Claude Code hook (MCP gateway, LangChain/LangGraph, OpenAI Agents
+  SDK), checkpointing for files written by programs an agent runs (file-system watcher), a shared allow-list of
+  known-good commands per project, and a red-team corpus of obfuscated commands to measure rule evasion.
+
+* Native adapters: Kubernetes (client API), AWS / Azure (GCP is done, via REST), firewall APIs (nftables, cloud security
   groups), Envoy and NGINX valve integration.
 * Durable distributed bus (Kafka / NATS) and a sharded orchestrator.
 * OpenTelemetry and Prometheus remote-read telemetry sources.

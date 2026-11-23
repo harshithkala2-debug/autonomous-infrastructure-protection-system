@@ -98,11 +98,15 @@ Severity is raised one step for criticality-5 assets and lowered one step for cr
 | traffic.restrict | MEDIUM | yes | L3 | |
 | identity.freeze | MEDIUM | yes | L3 | appealable |
 | identity.revoke_sessions | MEDIUM | **no** | L3 | |
+| identity.revert_actions | MEDIUM | yes | L3 | disables/removes what a contained identity created; undoable |
+| agent.freeze | MEDIUM | yes | L3 | AI agent: every further tool call refused |
+| agent.revert_actions | MEDIUM | yes | L3 | restores files an agent changed since it misbehaved; undoable |
 | network.block_port | MEDIUM | yes | L3 | |
 | host.isolate | HIGH | yes | L3 | two approvers by default |
 | backup.restore | HIGH | **no** | L3 | always approval, two approvers |
 | package.upgrade | HIGH | yes | L3 | always approval, two approvers |
 | identity.unfreeze | LOW | yes | HUMAN | appeal outcome |
+| agent.unfreeze | LOW | yes | HUMAN | a human releases a frozen agent |
 
 Autonomy ceiling is `max_autonomous_risk = MEDIUM` by default. Criticality-5 assets need approval for MEDIUM or
 higher risk. Targets matching `protected_targets` always need approval.
@@ -303,6 +307,21 @@ Dry-run episodes are never recorded, because they say nothing about how well a s
 * Criticality-5 assets always use the canonical or best-known variant.
 * Every step of every variant still passes the authorisation policy, so exploring can never gain more autonomy.
 * Selection is seeded (`[strategy] seed`), so runs are reproducible.
+
+## 13d. Protecting AI agents
+
+AI agents are treated as a protected actor in their own right. `aips/agents/` judges each tool call *before*
+it runs:
+* the inputs are the tool, its arguments, the session and the working directory;
+* the signals are harm rules, the agent's policy, behaviour, and prompt-injection taint from earlier outputs;
+* the verdict is ALLOW, FLAG, ASK or BLOCK.
+
+Non-ALLOW verdicts produce findings in category `agent` (signals `agent_harmful_action`, `agent_injection`,
+`agent_erratic`, `agent_policy_violation`). These enter the hierarchy like any other finding. The
+`agent-containment` playbook (containment priority, never explored) runs `agent.freeze` → `agent.revert_actions`
+→ `notify.humans`. Success is checked with `agent_frozen`. Files are checkpointed before any change, and a
+revert restores from the agent's first flagged call onward. Full behaviour, integrations and limits:
+[AGENTS.md](AGENTS.md).
 
 ## 13. Test scenarios, benchmarks and success criteria
 
