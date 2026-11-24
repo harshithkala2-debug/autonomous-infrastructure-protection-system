@@ -10,6 +10,24 @@ problems in an organisation's technology infrastructure: servers, cloud identiti
 now act on them. Every change it makes passes through an explicit authorisation policy and is recorded in a
 tamper-evident audit ledger.
 
+**New in 1.5: the AIPS web, a hybrid sandbox and machine learning.** Every protected machine joins one
+**closed trust domain** run by one orchestrator:
+
+* outsiders, forged keys, replays and revoked machines are shut out;
+* approvals need the human's passphrase, which is never stored, so an AI agent can't fake them;
+* storage is write-once, replicated and repairs itself;
+* agent commands run in a **sandbox** (on Windows at low integrity inside a Job Object), and risky work is sent
+  to a disposable sandbox machine;
+* small, explainable ML models score commands and machine telemetry.
+
+Live test with real node processes: **12/12**.
+[docs/WEB.md](docs/WEB.md) · [live evidence](docs/field-tests/web-live-2026-11-24.json)
+
+```bash
+aips web demo                                   # hub + node processes, attacked for real
+aips sandbox --workspace . -- python build.py   # judged first, run in a copy, never the real folder
+```
+
 **New in 1.4: protection for AI agents.** AIPS checks every tool call an AI agent makes (Claude Code, your own
 Python agent, or any framework over HTTP). It **blocks** harmful or runaway actions, **asks** a human about
 risky ones, **saves** files before they change, **freezes** a misbehaving agent and **reverts** what it did.
@@ -39,13 +57,16 @@ It puts the functions below into one coordinated control loop:
 | **Persistent experience** | A SQLite history of every episode (strategy, actions, outcome, reward, timing, relapses) and of each detector's accuracy. It survives restarts and drives chronic-issue escalation. |
 | **Google Cloud integration** | Discovers a project, then watches Cloud Monitoring, firewall rules, internet exposure, Cloud Audit Logs and Security Command Center. Acts through Compute Engine and IAM: VM reset, MIG restart and resize, deny rules, quarantine, firewall restore, service-account disable. Each action has a rollback, and the whole integration is tested end to end against an API emulator. See [docs/GCP.md](docs/GCP.md). |
 | **AI agent protection** | Judges every tool call before it runs: harm rules (wiping data, `curl \| sh`, sending secrets away, disabling security, privilege grabs, tampering with the guard), the agent's policy, and its behaviour (loops, bursts, error storms, prompt-injection taint). Checkpoints files first; Level 3 freezes the agent and reverts its changes through the policy. Works as a Claude Code hook, a Python wrapper and an HTTP API. See [docs/AGENTS.md](docs/AGENTS.md). |
+| **AIPS web (1.5)** | Closed trust domain (signed requests and responses, replay and revocation protection), an orchestrator with job routing, leases and failover, node quarantine, protected self-healing storage, and human-only approvals an agent can't forge. See [docs/WEB.md](docs/WEB.md). |
+| **Hybrid sandbox (1.5)** | Agent commands are judged, then run in a throw-away copy of the workspace with a stripped environment: Windows low integrity + Job Object limits locally, or a remote sandbox node for risky work. Changes are promoted back only through checkpoints, so they can be reverted. |
+| **Machine learning (1.5)** | Standard-library models: an online logistic-regression command-risk model that learns from human decisions and explains itself, and an Isolation Forest on machine telemetry. Advisory only. |
 | **Automatic strategy exploration** | Several alternative playbooks per problem. AIPS starts with the reviewed default, tries each alternative once, then uses Thompson sampling to favour what works, and switches strategy when a fix fails or relapses. It never experiments with containment or on critical assets. |
 
 The core has **zero runtime dependencies** (Python ≥ 3.11 standard library only). AES-GCM backup encryption is
 optional and uses `cryptography`.
 
-> **Status: v1.4.0.** The complete system is implemented and tested on Linux, Windows and macOS (Python 3.11
-> to 3.13): 116 tests, plus all 17 simulator scenarios on 20 random seeds in CI. Field tests so far:
+> **Status: v1.5.0.** The complete system is implemented and tested on Linux, Windows and macOS (Python 3.11
+> to 3.13): 153 tests, plus all 17 simulator scenarios on 20 random seeds in CI. Field tests so far:
 > * **Real Google Cloud project:** a staged service-account misuse was detected from the real audit log and the
 >   account disabled in IAM within 31 seconds, with 6 of 6 live safety tests passing. Everything the attacker
 >   created (account, key, role grant, including late log events) was reverted.
@@ -53,6 +74,9 @@ optional and uses `cryptography`.
 > * **Real Claude Code agent:** an exfiltration attempt was blocked and the agent frozen, a prompt injection was
 >   flagged and the session tainted, and an overwritten file was restored.
 >   [docs/AGENTS.md](docs/AGENTS.md)
+> * **AIPS web live test:** a hub and real node processes on a 2-core, 3.7 GB RAM laptop, attacked 12 ways
+>   (outsiders, replays, a sandbox escape, ransomware on storage, a silent node, a lying node, forged approvals):
+>   12/12 handled, stable over 4 runs. [docs/WEB.md](docs/WEB.md#8-live-test)
 > * **A live dry run on a workstation** with live NVD/KEV feeds. [docs/TESTING.md](docs/TESTING.md)
 >
 > All of this is in the 24-page [field test report](docs/AIPS_Field_Test_Report.pdf). Every claim is linked to raw
@@ -254,7 +278,9 @@ aips/
   repair/       known-good baselines, drift diff, action dispatcher, adapters
   traffic/      the two valves and their controller
   identity/     permission boundaries, behaviour profiles, freeze, appeals
-  agents/       AI agent guard: harm rules, checkpoints, freeze, revert, Claude Code hook, demo
+  agents/       AI agent guard: harm rules, checkpoints, freeze, revert, hybrid sandbox, Claude Code hook, demo
+  web/          AIPS web: trust domain, human approvals, protected storage, hub (orchestrator), nodes, live demo
+  ml/           standard-library ML: command-risk model, Isolation Forest
   backup/       object store, signed manifests, vault, backup manager
   intel/        collectors (NVD/KEV/OSV/feeds), version ranges, relevance, failure patterns
   sim/          simulator, fault injection, scenarios, benchmark
@@ -263,7 +289,7 @@ aips/
   orchestrator.py  wiring + control loop
   config.py        TOML -> running system
   cli.py           `aips` command
-docs/           setup, AI agents, architecture, specification, threat model, operations, testing, GCP
+docs/           setup, AI agents, AIPS web, architecture, specification, threat model, operations, testing, GCP
 examples/       configuration + inventory
 tests/          unit, integration, scenario and API tests
 ```
@@ -284,14 +310,24 @@ These are stated plainly so that engineers can evaluate the system fairly:
   deliberately disguises a command can get past text rules. Behaviour checks, checkpoints, taint and freezing
   limit the damage, but run agents you don't trust in a container or VM as well. See
   [docs/AGENTS.md](docs/AGENTS.md#limits-read-these).
-* **Detection is statistical and rule-based.** There are no trained ML models. The anomaly detector is EWMA/z-score
-  with level-shift handling. That choice keeps the system explainable, but subtle attacks may be missed.
-* **Single process.** The bus is in-process and synchronous for determinism. A distributed deployment would need
-  a durable transport (Kafka/NATS) behind the same interface.
+* **Detection is mostly statistical and rule-based.** The infrastructure anomaly detector is EWMA/z-score with
+  level-shift handling. The 1.5 ML models are small, trained on little data and advisory only. Subtle attacks
+  may be missed.
+* **The AIPS web is tested on one machine.** The live test ran the hub and every node as separate processes on
+  one laptop over loopback, not on separate machines or in a real cloud. The hub is a single point of failure.
+  The Linux/macOS sandbox has no filesystem confinement outside its jail (Windows low integrity does). See
+  [docs/WEB.md](docs/WEB.md#9-limits-read-these).
+* **The AIPS core is single process.** Its bus is in-process and synchronous for determinism. The web connects
+  machines, but a distributed AIPS core would need a durable transport (Kafka/NATS) behind the same interface.
 * **Intel fixtures are synthetic.** Bundled advisories use fictional `CVE-2099-*` IDs and products. Live collectors
   call the real NVD, CISA KEV and OSV APIs.
 
 See [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
+## Who built it
+
+The author designed AIPS and directed every step. Claude, an AI coding assistant, wrote the code, tests and
+docs from those instructions.
 
 ## Contributing
 

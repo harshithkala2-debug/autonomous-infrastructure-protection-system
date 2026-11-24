@@ -121,6 +121,16 @@ aips agent check --agent test --args '{"command": "rm -rf ~"}'
 
 On Windows PowerShell, use `--args '{\"command\": \"rm -rf ~\"}'` because PowerShell strips the inner quotes.
 
+## 4b. Sandbox and the AIPS web (1.5)
+
+```bash
+aips web demo                                       # live test: hub + node processes, 12 attacks (~10 s)
+aips sandbox --workspace . -- python -m pytest -q   # judged, then run in a copy of the folder
+```
+
+To join several machines into one AIPS web (trust domain, hub, nodes, approvals), follow
+[WEB.md](WEB.md#7-setting-it-up).
+
 ## 5. Run it on your own computer (observe only)
 
 This watches your own machine: disk use and the network ports it is listening on. AIPS makes decisions and

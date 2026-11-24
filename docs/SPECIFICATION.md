@@ -323,6 +323,29 @@ Non-ALLOW verdicts produce findings in category `agent` (signals `agent_harmful_
 revert restores from the agent's first flagged call onward. Full behaviour, integrations and limits:
 [AGENTS.md](AGENTS.md).
 
+## 13e. AIPS web, hybrid sandbox and machine learning
+
+* **Trust.** One domain secret on the hub; per-node keys `HMAC(secret, domain|node|epoch)`. A request is accepted
+  only if the domain, membership, epoch, ±30 s timestamp, unused nonce and HMAC over (method, path, body hash)
+  all check out. Responses are signed back and bound to the nonce. Revocation increments the epoch. Roles:
+  client, sandbox, storage, observer.
+* **Human approvals.** PBKDF2-SHA256 (240,000 iterations) verifier only; token =
+  `HMAC(key, request|sha256(action)|expiry)`, single use, accepted on the hub machine only. Wrong passphrases
+  cost a back-off capped at 30 s; a one-time recovery code resets the passphrase.
+* **Storage.** Content-addressed WORM objects (optional AES-256-GCM), a keyed hash-chained index, retention
+  locks, tombstone deletes behind approval, replication factor 2, repair from a hash-verified replica,
+  quarantine of a replica that returns wrong bytes.
+* **Orchestration.** Pull model with leases (default 60 s), at most 3 attempts, never back to a node that let a
+  lease expire. Least-loaded routing for sandbox jobs. A result from a node not holding the lease quarantines it.
+  Isolation Forest over (cpu, memory, processes, jobs, errors, network) plus an out-of-range check.
+* **Sandbox.** Judged first (BLOCK never runs; ASK needs an approver). Local or remote tier, chosen by verdict,
+  network/install intent and learned risk ≥ 0.5. Jail copy, cleaned environment, timeout, output cap; Windows
+  low integrity + Job Object (memory, processes, kill-on-close); POSIX rlimits + `unshare -rn` when available.
+  Changes reach the workspace only through `promote`, which checkpoints each file.
+* **Learned command risk.** Logistic regression on hashed tokens, bigrams and character 3-grams. In the guard it
+  adds at most 0.45 risk, is never critical, and learns from human decisions. Details and limits:
+  [WEB.md](WEB.md).
+
 ## 13. Test scenarios, benchmarks and success criteria
 
 See [`TESTING.md`](TESTING.md). Every scenario has explicit, machine-checked success criteria. `aips bench`

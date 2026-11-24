@@ -32,6 +32,25 @@ State (calls, freezes, taint, checkpoints, reverts) is in SQLite plus a content-
 Claude Code hook, which is one process per call, and a long-running AIPS share the same model. See
 [AGENTS.md](AGENTS.md).
 
+## AIPS web, hybrid sandbox and ML (1.5)
+
+`aips/web/` joins machines into one closed trust domain run by one hub (orchestrator).
+* Nodes hold only their own HMAC key, connect out and pull jobs.
+* Every request and response is signed (domain, node, epoch, time, nonce, method, path, body hash).
+* The hub keeps the node registry, routes jobs with leases and failover, quarantines nodes that lie, and stores
+  protected objects (write-once, keyed hash-chained index, replicated, self-healing).
+* It writes everything to its own tamper-evident ledger and emits findings (`web_intrusion`,
+  `web_node_quarantined`, `web_node_anomaly`, `storage_corruption`, `web_fake_approval`), which
+  `on_finding=aips.ingest_findings` feeds into the normal hierarchy.
+* Human approvals are HMACs made with a key derived from a passphrase that is never stored.
+
+`aips/agents/sandbox.py` runs agent commands after the guard has judged them. They run in a jail copy (local:
+Windows low integrity + Job Object; POSIX rlimits + optional network namespace) or on a remote sandbox node, and
+reach the real workspace only through checkpointed `promote`.
+
+`aips/ml/` holds a standard-library command-risk model (advisory evidence in the guard) and an Isolation Forest
+(hub telemetry). See [WEB.md](WEB.md).
+
 ## Layer mesh
 
 ```

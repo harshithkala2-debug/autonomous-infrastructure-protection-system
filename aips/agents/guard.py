@@ -225,8 +225,10 @@ class AgentGuard:
     def __init__(self, config: AgentConfig | None = None, policy: AgentPolicy | None = None,
                  store: AgentStore | None = None, clock: Clock | None = None,
                  policies: dict[str, AgentPolicy] | None = None,
-                 on_finding: Callable[[Finding], None] | None = None, audit: Any = None):
+                 on_finding: Callable[[Finding], None] | None = None, audit: Any = None,
+                 risk_model: Any = None):
         self.config = config or AgentConfig()
+        self.risk_model = risk_model                     # optional learned model (aips.ml.CommandRiskModel)
         self.policy = policy or AgentPolicy()
         self.policies = dict(policies or {})            # per-agent overrides (glob on agent id)
         self.store = store or AgentStore(":memory:")
@@ -374,6 +376,13 @@ class AgentGuard:
         if egress and self._read_secrets_recently(call, now):
             ind.append((0.55, "outbound call shortly after reading credential files (possible exfiltration)",
                         "secrets", False))
+        if self.risk_model is not None and parsed.intent in ("shell", "mutate", "delete", "network", "other"):
+            # advisory evidence only: never critical, capped well below the block threshold
+            p = self.risk_model.predict(call.tool, parsed.text)
+            if p >= 0.6:
+                top = ", ".join(t for t, _ in self.risk_model.explain(call.tool, parsed.text, 3))
+                ind.append((round(min(0.45, 0.6 * p), 3), f"learned model rates this {p:.2f} harmful ({top})",
+                            "ml", False))
 
         roots = [Path(r) for r in pol.workspace_roots] or ([Path(call.cwd)] if call.cwd else [])
         if roots and parsed.write_paths:
@@ -548,6 +557,15 @@ class AgentGuard:
         if self.audit is not None:
             self.audit.append(by, "agent.frozen", {"agent": agent_id, "reason": reason})
         return {"agent": agent_id, "frozen": True}
+
+    def learn(self, call_id: str, harmful: bool) -> bool:
+        """Teach the learned model from a human decision on a call (approve = benign, deny = harmful)."""
+        row = self.store.get_call(call_id)
+        if row is None or self.risk_model is None:
+            return False
+        call = ToolCall(row.agent, row.tool, json.loads(row.args) if isinstance(row.args, str) else row.args)
+        self.risk_model.update(call.tool, self._parse(call).text, 1 if harmful else 0, weight=2.0)
+        return True
 
     def unfreeze(self, agent_id: str, by: str = "human", clear_taint_sessions: bool = True) -> bool:
         ok = self.store.unfreeze(agent_id)

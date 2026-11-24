@@ -29,9 +29,16 @@ how, and what it does not cover.
 | T12 | **Disclosure of the organisation's network ranges** | Vault allow-lists live only in private configuration. Logs contain salted hashes of caller IPs. |
 | T14 | **An AI agent is wrong, loops or is hijacked by prompt injection** | Every tool call is judged before it runs (harm rules, policy, behaviour). Critical actions are blocked and the agent frozen. Files are checkpointed first and reverted from the first suspicious call. Injected instructions in tool output taint the session, so a human approves risky calls. See [AGENTS.md](AGENTS.md). |
 | T15 | **The agent attacks its own guard** (unfreeze itself, edit hook settings, touch the guard's state) | Self-protection rules block these as critical. Only a human can unfreeze. The hook fails to *ask*, never to allow. Residual risk: the guard is not a sandbox, so a deliberately obfuscated command can evade text rules. Use OS isolation for untrusted agents. |
+| T16 | **An outsider or stolen machine joins the AIPS web**, or replays captured traffic | Closed trust domain: issued per-node keys, signed requests and responses, nonce replay cache, 30 s clock window, revocation by epoch, roles per node. Rejections become findings. See [WEB.md](WEB.md). |
+| T17 | **An AI agent fakes a human approval** or covers its tracks | The passphrase is never stored (PBKDF2 verifier only), approvals are bound to the exact action, expire and work once, and approvals are accepted on the hub machine only. `web_tamper` blocks agents touching keys and logs, and the audit ledger is hash-chained. |
+| T18 | **A compromised node lies** (fake job results, bad replicas) | Results are accepted only from the node holding the lease, and replicas only if their hash matches. A liar is quarantined and revoked. |
+| T19 | **An agent command escapes its sandbox** | A jail copy, stripped environment and limits. Windows low integrity stops writes outside the jail. Risky work goes to a disposable remote node. Residual risk: no filesystem confinement on Linux/macOS and best-effort network blocking without `unshare`. |
 | T13 | **AIPS itself misbehaves** | Kill switch, dry-run mode and the two-person rule for HIGH risk. Containment is never auto-reverted, and every step is audited. |
 
 ## Out of scope / residual risk
+
+* **Compromise of the AIPS web hub.** It holds the domain secret and can derive every node key. Run it on a
+  hardened machine or account, keep agents off it and back up `domain.json` offline.
 
 * **Compromise of the host running AIPS.** An attacker with root on that host can use the adapter credentials
   directly. Run AIPS on a hardened, dedicated host or account with least-privilege adapter credentials.

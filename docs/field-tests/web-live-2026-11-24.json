@@ -1,0 +1,174 @@
+{
+  "test": "aips-web-live",
+  "date": "2026-11-24",
+  "passed": 12,
+  "total": 12,
+  "duration_s": 11.8,
+  "environment": {
+    "os": "Windows 10",
+    "python": "3.14.3",
+    "cpus": 4,
+    "ram_gb": 3.7,
+    "topology": "1 hub + node processes on one machine, loopback HTTP"
+  },
+  "checks": [
+    {
+      "id": "W1",
+      "name": "three node processes join the closed trust domain",
+      "passed": true,
+      "detail": {
+        "online": [
+          "box-1",
+          "store-a",
+          "store-b"
+        ],
+        "pids": {
+          "store-a": 952,
+          "store-b": 14632,
+          "box-1": 14224
+        }
+      }
+    },
+    {
+      "id": "W2",
+      "name": "outsiders, forged keys, replays and revoked nodes are shut out",
+      "passed": true,
+      "detail": {
+        "attempts": {
+          "other domain, same names": "rejected (bad_signature)",
+          "guessed key": "rejected (bad_signature)",
+          "replayed request": "first 200, replay 401",
+          "revoked node": "rejected (revoked)"
+        },
+        "intrusion_findings": 4
+      }
+    },
+    {
+      "id": "W3",
+      "name": "a job runs on the sandbox node; escape and memory bomb are contained",
+      "passed": true,
+      "detail": {
+        "node": "box-1",
+        "isolation": [
+          "jail-copy (real workspace untouched)",
+          "clean-environment (no inherited secrets)",
+          "timeout 60s",
+          "network: dead proxy for HTTP clients (best effort)",
+          "windows-low-integrity",
+          "job-object(memory 512 MB, 32 processes, kill-on-close)"
+        ],
+        "escape_write_blocked": true,
+        "escape_stderr": "Access is denied.\r\n",
+        "memory_bomb_exit": 1
+      }
+    },
+    {
+      "id": "W4",
+      "name": "storage is replicated to 2 nodes and repairs a corrupted copy by itself",
+      "passed": true,
+      "detail": {
+        "replicas": [
+          "store-a",
+          "store-b"
+        ],
+        "repaired": true,
+        "digest": "1017a40c31f2543f"
+      }
+    },
+    {
+      "id": "W5",
+      "name": "editing the storage index is detected",
+      "passed": true,
+      "detail": {
+        "detail": "record hash mismatch (modified)"
+      }
+    },
+    {
+      "id": "W6",
+      "name": "a job held by a node that went silent moves to a healthy node",
+      "passed": true,
+      "detail": {
+        "first_holder": "box-ghost",
+        "finished_on": "box-2",
+        "attempts": 2
+      }
+    },
+    {
+      "id": "W7",
+      "name": "a node that fakes a job result is quarantined and shut out",
+      "passed": true,
+      "detail": {
+        "reason": "sent a result for job 3ea8568c4a234ed7 it was not assigned (forged result)"
+      }
+    },
+    {
+      "id": "W8",
+      "name": "approvals faked from files on disk are refused; the real human's works",
+      "passed": true,
+      "detail": {
+        "fake_attempts": [
+          403,
+          403,
+          403
+        ],
+        "real_approval": 200
+      }
+    },
+    {
+      "id": "W9",
+      "name": "an AI agent cannot read the web's keys or approve for the human",
+      "passed": true,
+      "detail": {
+        "verdicts": {
+          "cat ~/.aips-web/domain.json": "block",
+          "type \"<temp>\\hub\\human.json\"": "block",
+          "aips web approve 71c768632c0f": "block",
+          "echo {} > web-audit.jsonl": "block"
+        }
+      }
+    },
+    {
+      "id": "W10",
+      "name": "hybrid sandbox: blocks, runs locally in a copy, promotes with undo, sends risky work away",
+      "passed": true,
+      "detail": {
+        "blocked": "block",
+        "local_edit_left_real_file_untouched": true,
+        "promoted": true,
+        "reverted": true,
+        "risky_tier": "remote",
+        "risky_node": "box-2",
+        "learned_risk": {
+          "curl|sh": 0.925,
+          "echo": 0.254
+        }
+      }
+    },
+    {
+      "id": "W11",
+      "name": "machine learning flags a node whose telemetry suddenly looks wrong",
+      "passed": true,
+      "detail": {
+        "score": 0.8,
+        "samples": 93
+      }
+    },
+    {
+      "id": "W12",
+      "name": "every decision is in a tamper-evident audit log that verifies",
+      "passed": true,
+      "detail": {
+        "records": 41,
+        "detail": "41 records verified"
+      }
+    }
+  ],
+  "findings": [
+    "storage_corruption",
+    "web_fake_approval",
+    "web_intrusion",
+    "web_node_anomaly",
+    "web_node_quarantined"
+  ],
+  "note": "all paths were temporary and deleted after the run"
+}

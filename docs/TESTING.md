@@ -15,6 +15,7 @@ python -m pytest            # or: python -m unittest discover -s tests -t .
 | `tests/test_gcp.py` | Google Cloud integration against the API emulator: token chain, retries, pagination, operation polling; discovery and inventory TOML; exposure with GCP priority/deny semantics; telemetry mapping and per-API failure isolation; every adapter action and rollback; end-to-end runs (rogue firewall rule, crashed MIG, service-account misuse disabled in IAM) |
 | `tests/test_learning.py` | layer mesh (discovery, loop and depth refusal, contained failures, audited mutations); experience store (persistence across instances, strategy stats, relapse, recurrence, similar, rewards); selector (untried-first, convergence to the best strategy, exclusion, no exploration for containment); the three learning scenarios on two seeds |
 | `tests/test_agents.py` | AI agent guard: 27 harmful commands blocked, risky ones sent to a human, 21 ordinary developer commands untouched, file content not mistaken for commands, scope/policy/domains, exfiltration after reading secrets; loops → block → freeze, error storms, prompt-injection taint, freeze persisting across processes; checkpoint + revert of changed/deleted/created files, legitimate earlier work kept, corrupted checkpoint refused, undo of a revert; Claude Code hook answers, failure mode, settings merge; Level 3 freeze + revert through the policy, kill switch, demo, HTTP API |
+| `tests/test_web.py` | AIPS web: trust domain (outsiders, forged keys, tampered bodies, replay, clock skew, revocation, re-issue, impostor hub); human lock (passphrase never stored, forged approvals, action binding, expiry, single use, capped back-off, recovery); storage (versions, index tamper, retention); live HTTP hub + nodes (roles, replication, self-healing, lying replica quarantined, remote sandbox, forged result, approvals); orchestrator (failover, least-loaded routing, telemetry anomaly); sandbox (copy, secret stripping, timeout, memory cap, Windows low integrity, hybrid block/route/promote/revert); ML (unseen commands, learning, save/load, guard evidence, Isolation Forest); the full live demo |
 | `tests/test_system.py` | all 17 scenarios pass; selected scenarios across extra seeds; determinism; HTTP API (auth, incidents, approvals, metrics, audit verify, access events) |
 
 ## Scenarios and success criteria
@@ -67,6 +68,13 @@ See [FIELD_TEST_GCP.md](FIELD_TEST_GCP.md):
 [AIPS_Field_Test_Report.pdf](AIPS_Field_Test_Report.pdf) (24 pages). It has claims C1–C11, each tied to raw evidence
 E1–E19 (sanitised, quoted in full, SHA-256 fingerprinted). It covers the Google Cloud and Claude Code field
 tests, the test suite and the benchmark.
+
+## Field test: AIPS web (hub + node processes)
+
+`aips web demo`: a real hub and real node *processes* on one laptop (Windows 10, 2 cores, 3.7 GB RAM), loopback
+HTTP, 12 attacks. Result **12/12**, about 10 s, stable over 4 runs. Evidence:
+[`field-tests/web-live-2026-11-24.json`](field-tests/web-live-2026-11-24.json); table in
+[WEB.md](WEB.md#8-live-test). It is not yet a multi-machine or cloud test.
 
 ## Field test: real Claude Code agent
 

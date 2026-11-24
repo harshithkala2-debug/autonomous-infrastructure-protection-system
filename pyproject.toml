@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aips"
-version = "1.4.0"
+version = "1.5.0"
 description = "Autonomous Infrastructure Protection System: a hierarchical multi-agent platform that monitors, repairs and protects infrastructure, cloud identities and AI agents."
 readme = "README.md"
 requires-python = ">=3.11"

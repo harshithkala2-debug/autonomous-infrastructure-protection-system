@@ -10,6 +10,8 @@
     aips experience --db aips-data/experience.db [--signal overload] [--asset api]
     aips gcp {check,discover} --project PROJECT [--out inventory.toml]
     aips gcp baseline --config aips-gcp.toml --approved-by NAME
+    aips web {init,issue,revoke,members,hub,node,status,approvals,approve,reset-passphrase,demo}
+    aips sandbox COMMAND... [--workspace DIR] [--remote CRED] [--ask] [--promote]
     aips version
 """
 
@@ -426,6 +428,9 @@ def main(argv: list[str] | None = None) -> int:
     ag.add_argument("--by", default="human", help="who is acting (recorded)")
     ag.add_argument("--limit", type=int, default=50)
     ag.set_defaults(fn=cmd_agent)
+
+    from .web.cli import add_parsers as add_web_parsers
+    add_web_parsers(sub)
 
     sub.add_parser("version").set_defaults(fn=lambda _a: print(__version__) or 0)
 

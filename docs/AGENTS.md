@@ -167,9 +167,16 @@ The demo runs a scripted agent in a throw-away folder:
    back to the original and all 3 deleted files are back. The audit ledger verifies.
 5. A human releases the agent.
 
+## Sandbox and the AIPS web (1.5)
+
+The guard can now be paired with a **hybrid sandbox**. Commands are judged first, then run in a throw-away copy
+of the workspace, on Windows at low integrity inside a Job Object, or on a remote sandbox machine for risky work.
+Changes come back only through checkpoints, so they can be reverted. Approvals made through the AIPS web need the
+human's passphrase, so an agent can't fake them. See [WEB.md](WEB.md).
+
 ## Limits (read these)
 
-* **The guard is a gate, not a sandbox.** It only sees calls that go through it (the hook, `guarded`, the
+* **The guard is a gate, not a sandbox.** (Pair it with the hybrid sandbox in [WEB.md](WEB.md#5-hybrid-sandbox).) It only sees calls that go through it (the hook, `guarded`, the
   API). Text rules can be evaded by an agent that deliberately obfuscates a command (for example by building it
   from pieces). Behaviour checks, checkpoints, taint and freezing reduce the damage, but for agents you don't
   trust, also run them in an OS-level sandbox (a container or VM, a separate user, no production credentials).

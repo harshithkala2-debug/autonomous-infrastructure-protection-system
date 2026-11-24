@@ -110,6 +110,10 @@ DEFAULT_RULES: list[HarmRule] = [
     HarmRule("guard_tamper", "self_protection",
              r"\baips\s+agent\s+(?:unfreeze|reset|forget)\b|\.aips-agent(?:[/\\'\"\s]|$)",
              0.95, True, "an agent may not unfreeze itself or touch the guard's state"),
+    HarmRule("web_tamper", "self_protection",
+             r"\.aips-web(?:[/\\'\"\s]|$)|\baips\s+web\s+(?:approve|unlock|revoke|issue|reset-passphrase)\b|"
+             r"\b(?:domain|human|credential)\.json\b|web-audit\.jsonl",
+             0.95, True, "an agent may not touch the AIPS web's keys, approvals or audit log"),
     HarmRule("hook_tamper", "self_protection", r"\.claude[/\\]settings(?:\.local)?\.json|\bdisableAllHooks\b", 0.7,
              description="change the agent's own guard-rail configuration"),
 ]

@@ -66,6 +66,20 @@ All endpoints except `/health` require `Authorization: Bearer <token>`.
   (`local_ratelimit`), NGINX (`limit_req`), an API gateway, or queue-consumer concurrency.
 * **Notifications.** HTTPS webhooks in `[notify] webhooks` (Slack, Teams or PagerDuty bridges).
 
+## AIPS web (1.5)
+
+The hub has its own HTTP surface: `POST /web/heartbeat|poll|result|status|storage/put|storage/get|sandbox/run|`
+`approval/request`. Each needs a signed envelope from a member node with the right role. `GET /web/approvals`
+and `POST /web/approve` are accepted on the hub machine only and need a token made with the human passphrase.
+
+* Run the hub as its own user or on its own machine, with TLS (`--tls-cert/--tls-key`) on any real network.
+* Back up `~/.aips-web/domain.json` offline. Anyone holding it can mint node keys.
+* Lost or stolen machine: `aips web revoke NODE`. Its key stops working at once.
+* Forgotten passphrase: `aips web reset-passphrase` with the recovery code.
+* A quarantined node stays out until a human re-issues its credential (`aips web issue NODE`).
+
+See [WEB.md](WEB.md).
+
 ## Runbook: common situations
 
 | Situation | What to do |

@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.5.0
+
+**The AIPS web, a hybrid sandbox and machine learning.**
+
+* **Closed trust domain (`aips/web/trust.py`).** Only machines with an issued credential can join. Each node holds
+  only its own key, derived from the domain secret. Every request and response is signed, with HMAC-SHA256 over
+  the domain, node, epoch, time, nonce, method, path and body hash. Rejected: other domains, unknown nodes, wrong
+  keys, tampered bodies, replays, clock skew over 30 s, revoked nodes and old credentials. Revoking bumps the epoch.
+* **Human-only approvals (`aips/web/human.py`).** The passphrase is never stored (PBKDF2 verifier only). Approvals
+  are bound to the exact action, expire and work once. The real human is never locked out (capped back-off and a
+  one-time recovery code). New critical harm rule `web_tamper` stops agents touching the web's keys, approvals and
+  audit log.
+* **Protected storage (`aips/web/storage.py`).** Write-once, content-addressed objects with a hash-chained, keyed
+  index, retention locks and approval-gated deletes. Replicated to storage nodes. A corrupted copy is repaired
+  from a replica, and a lying replica is quarantined.
+* **Orchestrator (`aips/web/hub.py`) and nodes (`aips/web/node.py`).** Nodes connect out and pull work. The hub
+  does least-loaded routing, leases and failover, quarantine of nodes that fake results, Isolation Forest scoring
+  of real node telemetry (Win32 / `/proc`), a tamper-evident audit log, and AIPS findings (`web_intrusion`,
+  `web_node_quarantined`, `web_node_anomaly`, `storage_corruption`, `web_fake_approval`). Optional TLS.
+* **Hybrid sandbox (`aips/agents/sandbox.py`).** Commands are judged first; blocked ones never run. The rest run
+  in a jail copy with a stripped environment, timeout and output cap. On Windows: low integrity plus a Job Object
+  (memory and process caps, kill-on-close). On Linux/macOS: rlimits, own session, and `unshare -rn` where allowed.
+  Risky work goes to a remote sandbox node. `promote` copies changes back through checkpoints, so they can be
+  reverted. Each result lists the isolation that was actually active.
+* **Machine learning (`aips/ml/`, standard library only).** `CommandRiskModel` (online logistic regression on
+  hashed tokens, learns from human decisions, explains itself; advisory in the guard, at most +0.45 risk, never
+  critical) and `IsolationForest`.
+* **CLI:** `aips web init|issue|revoke|members|hub|node|status|approvals|approve|reset-passphrase|demo`,
+  `aips sandbox`.
+* **Live test** (`aips web demo`, `docs/field-tests/web-live-2026-11-24.json`): a hub plus real node processes,
+  12 attacks, 12/12 handled, stable over 4 runs on a 2-core, 3.7 GB laptop.
+* **Tests:** `tests/test_web.py`, 37 tests (153 in total).
+
 ## 1.4.0
 
 **Protection for AI agents, open source under MIT, and a step-by-step setup guide.**
