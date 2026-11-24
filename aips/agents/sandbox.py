@@ -410,8 +410,13 @@ def _posix_run(command: str, work: Path, env: dict[str, str], lim: SandboxLimits
                err_p: Path) -> tuple[int | None, bool, list[str]]:
     import resource  # noqa: PLC0415 - POSIX only
 
-    iso = [f"rlimits(address space {lim.memory_mb} MB, {lim.max_processes} processes, file size 256 MB)",
-           "own-session (killed as a group)"]
+    if sys.platform == "darwin":
+        # macOS accepts RLIMIT_AS but does not enforce it, so no memory cap is claimed there
+        iso = ["rlimits(file size 256 MB, CPU time; memory cap NOT enforced on macOS)",
+               "own-session (killed as a group)"]
+    else:
+        iso = [f"rlimits(address space {lim.memory_mb} MB, {lim.max_processes} processes, file size 256 MB)",
+               "own-session (killed as a group)"]
 
     def limit() -> None:
         mem = lim.memory_mb * 1024 * 1024

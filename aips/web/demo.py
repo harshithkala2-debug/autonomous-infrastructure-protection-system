@@ -126,11 +126,14 @@ def run(say: Callable[[str], None] = print, keep: bool = False) -> dict[str, Any
         r3 = client.sandbox('python -c "x = bytearray(900 * 1024 * 1024)"', timeout=60)
         low = "windows-low-integrity" in r2.get("isolation", [])
         escape_blocked = (not victim.exists()) if low else None      # only Windows low integrity confines writes
-        ok = (r1["exit_code"] == 0 and "hello" in r1["stdout"] and r3["exit_code"] != 0
+        mem_capped = sys.platform != "darwin"                     # macOS does not enforce RLIMIT_AS
+        bomb_contained = (r3["exit_code"] != 0) if mem_capped else None
+        ok = (r1["exit_code"] == 0 and "hello" in r1["stdout"] and bomb_contained is not False
               and (escape_blocked is not False))
         check("W3", "a job runs on the sandbox node; escape and memory bomb are contained", ok,
               node=r1.get("node"), isolation=r1.get("isolation"), escape_write_blocked=escape_blocked,
-              escape_stderr=r2.get("stderr", "")[:120], memory_bomb_exit=r3["exit_code"])
+              escape_stderr=r2.get("stderr", "")[:120], memory_bomb_exit=r3["exit_code"],
+              memory_bomb_contained=bomb_contained)
 
         # ---------------------------------------------------------------- W4 storage + self-healing
         data = b"customer database backup\n" * 400

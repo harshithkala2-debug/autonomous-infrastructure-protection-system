@@ -21,7 +21,7 @@
   `web_node_quarantined`, `web_node_anomaly`, `storage_corruption`, `web_fake_approval`). Optional TLS.
 * **Hybrid sandbox (`aips/agents/sandbox.py`).** Commands are judged first; blocked ones never run. The rest run
   in a jail copy with a stripped environment, timeout and output cap. On Windows: low integrity plus a Job Object
-  (memory and process caps, kill-on-close). On Linux/macOS: rlimits, own session, and `unshare -rn` where allowed.
+  (memory and process caps, kill-on-close). On Linux/macOS: rlimits (macOS ignores the memory cap, and the sandbox says so), own session, and `unshare -rn` where allowed.
   Risky work goes to a remote sandbox node. `promote` copies changes back through checkpoints, so they can be
   reverted. Each result lists the isolation that was actually active.
 * **Machine learning (`aips/ml/`, standard library only).** `CommandRiskModel` (online logistic regression on

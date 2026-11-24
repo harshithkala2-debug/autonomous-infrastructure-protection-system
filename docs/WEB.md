@@ -98,7 +98,7 @@ real folder only through `promote`, which checkpoints each file first, so `aips 
 
 | Tier | Where | Isolation |
 |---|---|---|
-| **local** | this machine | jail copy; environment stripped of all inherited variables (no tokens or cloud keys); own TEMP/HOME; timeout; output cap; dead proxy for HTTP clients. **Windows:** low integrity (can't write the user's files outside the jail) + Job Object (memory cap, process cap, everything killed with the job). **Linux/macOS:** `setrlimit` caps, own session, and `unshare -rn` (no network) where unprivileged namespaces are allowed |
+| **local** | this machine | jail copy; environment stripped of all inherited variables (no tokens or cloud keys); own TEMP/HOME; timeout; output cap; dead proxy for HTTP clients. **Windows:** low integrity (can't write the user's files outside the jail) + Job Object (memory cap, process cap, everything killed with the job). **Linux/macOS:** `setrlimit` caps (macOS ignores the memory cap), own session, and `unshare -rn` (no network) where unprivileged namespaces are allowed |
 | **remote** | a `sandbox` node of the web (another machine or a cloud VM) | the same, on a machine you can throw away |
 
 Risky but allowed work goes to the **remote** tier when a sandbox node is online:
@@ -181,7 +181,8 @@ Evidence: [`field-tests/web-live-2026-11-24.json`](field-tests/web-live-2026-11-
   machine, back up `domain.json` offline, and keep agents off it. Hub high availability isn't built yet.
 * **Linux/macOS sandbox** has no filesystem confinement outside the jail. Only Windows low integrity provides
   that. Run sandbox nodes as a separate user, in a container or on a disposable VM. Network blocking is real only
-  with `unshare -rn`; elsewhere the dead proxy stops well-behaved HTTP clients, not raw sockets.
+  with `unshare -rn`; elsewhere the dead proxy stops well-behaved HTTP clients, not raw sockets. **macOS does
+  not enforce the memory cap** (it accepts the limit but ignores it), so the sandbox doesn't claim one there.
 * **Same-user attacks on the hub's memory** (a debugger attached to the hub process) are out of scope. That's
   another reason to run the hub as its own user or machine.
 * **ML is small and advisory.** The risk model was trained on about 80 examples and the telemetry model on what
