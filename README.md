@@ -327,7 +327,7 @@ See [`docs/ROADMAP.md`](docs/ROADMAP.md).
 ## Who built it
 
 The author designed AIPS and directed every step. Claude, an AI coding assistant, wrote the code, tests and
-docs from those instructions.
+docs from those instructions. The day-by-day record of who did what is in [docs/HISTORY.md](docs/HISTORY.md).
 
 ## Contributing
 
