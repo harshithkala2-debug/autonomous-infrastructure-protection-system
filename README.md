@@ -10,6 +10,22 @@ problems in an organisation's technology infrastructure: servers, cloud identiti
 now act on them. Every change it makes passes through an explicit authorisation policy and is recorded in a
 tamper-evident audit ledger.
 
+### Try it in 2 minutes
+
+Needs Python 3.11 or newer. No other dependencies, no accounts, and nothing on your machine is changed.
+
+```bash
+git clone https://github.com/harshithkala2-debug/autonomous-infrastructure-protection-system.git
+cd autonomous-infrastructure-protection-system
+python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\Activate.ps1
+pip install -e .
+
+aips agent demo    # an AI agent hijacked by prompt injection: blocked, frozen, its changes reverted
+aips web demo      # a hub + real node processes, attacked 12 ways (~15 s)
+```
+
+Full setup for Windows, macOS and Linux: [docs/SETUP.md](docs/SETUP.md).
+
 **New in 1.5: the AIPS web, a hybrid sandbox and machine learning.** Every protected machine joins one
 **closed trust domain** run by one orchestrator:
 
@@ -101,6 +117,7 @@ pip install -e ".[dev]"
 aips demo                   # 17 end-to-end incident scenarios with success criteria
 aips demo --scenario ransomware -v   # full incident timeline
 aips agent demo             # an AI agent hijacked by prompt injection, contained and reverted
+aips web demo               # the AIPS web: hub + node processes, 12 attacks
 aips bench --seeds 1-10     # benchmark across random seeds
 python -m pytest -q         # the test suite
 aips run --config examples/aips-local.toml --no-api --ticks 4 --tick-seconds 5   # watch your own computer (changes nothing)
